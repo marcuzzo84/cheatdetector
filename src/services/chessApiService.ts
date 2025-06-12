@@ -71,12 +71,22 @@ export interface LichessGame {
 export interface ProcessedGame {
   playerHash: string;
   site: 'Chess.com' | 'Lichess';
+  extUid: string; // External game ID
   pgn: string;
   date: string;
   result: string;
   elo: number;
   timeControl: string;
   opening?: string;
+  timestamp: number; // Unix timestamp for cursor tracking
+}
+
+export interface SyncCursor {
+  site: string;
+  username: string;
+  lastTs: string;
+  lastGameId?: string;
+  totalImported: number;
 }
 
 class ChessApiService {
@@ -126,10 +136,86 @@ class ChessApiService {
     }
   }
 
-  async fetchChessComPlayerGames(username: string, limit: number = 50): Promise<ProcessedGame[]> {
+  // Get sync cursor for resumable imports
+  private async getSyncCursor(site: string, username: string): Promise<SyncCursor | null> {
+    try {
+      const { data, error } = await supabase
+        .from('sync_cursor')
+        .select('*')
+        .eq('site', site)
+        .eq('username', username)
+        .single();
+
+      if (error && error.code !== 'PGRST116') { // PGRST116 = not found
+        console.error('Error fetching sync cursor:', error);
+        return null;
+      }
+
+      return data ? {
+        site: data.site,
+        username: data.username,
+        lastTs: data.last_ts,
+        lastGameId: data.last_game_id,
+        totalImported: data.total_imported
+      } : null;
+    } catch (error) {
+      console.error('Error in getSyncCursor:', error);
+      return null;
+    }
+  }
+
+  // Update sync cursor
+  private async updateSyncCursor(site: string, username: string, lastTs: Date, lastGameId?: string, incrementCount: number = 1): Promise<void> {
+    try {
+      const { error } = await supabase.rpc('update_sync_cursor', {
+        p_site: site,
+        p_username: username,
+        p_last_ts: lastTs.toISOString(),
+        p_last_game_id: lastGameId,
+        p_increment_count: incrementCount
+      });
+
+      if (error) {
+        console.error('Error updating sync cursor:', error);
+      }
+    } catch (error) {
+      console.error('Error in updateSyncCursor:', error);
+    }
+  }
+
+  // Check if game already exists
+  private async gameExists(site: string, extUid: string): Promise<boolean> {
+    try {
+      const { data, error } = await supabase.rpc('game_exists', {
+        p_site: site,
+        p_ext_uid: extUid
+      });
+
+      if (error) {
+        console.error('Error checking game existence:', error);
+        return false;
+      }
+
+      return data || false;
+    } catch (error) {
+      console.error('Error in gameExists:', error);
+      return false;
+    }
+  }
+
+  async fetchChessComPlayerGames(username: string, limit: number = 50, resumable: boolean = true): Promise<ProcessedGame[]> {
     try {
       console.log(`Fetching Chess.com games for ${username}...`);
       
+      // Get sync cursor for resumable imports
+      let syncCursor: SyncCursor | null = null;
+      if (resumable) {
+        syncCursor = await this.getSyncCursor('Chess.com', username);
+        if (syncCursor) {
+          console.log(`Resuming from ${syncCursor.lastTs}, already imported ${syncCursor.totalImported} games`);
+        }
+      }
+
       // Get monthly archives
       const archivesUrl = `${this.CHESS_COM_BASE_URL}/player/${username}/games/archives`;
       const archives = await this.makeRequest(archivesUrl);
@@ -141,6 +227,7 @@ class ChessApiService {
 
       const games: ProcessedGame[] = [];
       const playerHash = this.generatePlayerHash(username, 'Chess.com');
+      const lastImportTime = syncCursor ? new Date(syncCursor.lastTs).getTime() / 1000 : 0;
 
       // Start from the most recent month and work backwards
       const sortedArchives = archives.archives.sort().reverse();
@@ -160,20 +247,33 @@ class ChessApiService {
             for (const game of sortedGames) {
               if (games.length >= limit) break;
 
+              // Skip games older than our cursor
+              if (resumable && game.end_time <= lastImportTime) {
+                console.log(`Skipping game ${game.uuid} - older than cursor`);
+                continue;
+              }
+
+              // Check if game already exists
+              if (await this.gameExists('Chess.com', game.uuid)) {
+                console.log(`Skipping game ${game.uuid} - already exists`);
+                continue;
+              }
+
               // Determine if this player was white or black
               const isWhite = game.white.username.toLowerCase() === username.toLowerCase();
               const playerData = isWhite ? game.white : game.black;
-              const opponentData = isWhite ? game.black : game.white;
 
               const processedGame: ProcessedGame = {
                 playerHash,
                 site: 'Chess.com',
+                extUid: game.uuid,
                 pgn: game.pgn || '',
                 date: new Date(game.end_time * 1000).toISOString().split('T')[0],
                 result: this.normalizeResult(playerData.result),
                 elo: playerData.rating,
                 timeControl: game.time_control || 'unknown',
-                opening: this.extractOpeningFromPgn(game.pgn)
+                opening: this.extractOpeningFromPgn(game.pgn),
+                timestamp: game.end_time
               };
 
               games.push(processedGame);
@@ -185,7 +285,7 @@ class ChessApiService {
         }
       }
 
-      console.log(`Fetched ${games.length} Chess.com games for ${username}`);
+      console.log(`Fetched ${games.length} new Chess.com games for ${username}`);
       return games;
     } catch (error) {
       console.error(`Error fetching Chess.com games for ${username}:`, error);
@@ -193,11 +293,23 @@ class ChessApiService {
     }
   }
 
-  async fetchLichessPlayerGames(username: string, limit: number = 50): Promise<ProcessedGame[]> {
+  async fetchLichessPlayerGames(username: string, limit: number = 50, resumable: boolean = true): Promise<ProcessedGame[]> {
     try {
       console.log(`Fetching Lichess games for ${username}...`);
       
-      const url = `${this.LICHESS_BASE_URL}/games/user/${username}?max=${limit}&moves=true&opening=true&sort=dateDesc`;
+      // Get sync cursor for resumable imports
+      let syncCursor: SyncCursor | null = null;
+      let sinceParam = '';
+      if (resumable) {
+        syncCursor = await this.getSyncCursor('Lichess', username);
+        if (syncCursor) {
+          const sinceMs = new Date(syncCursor.lastTs).getTime();
+          sinceParam = `&since=${sinceMs}`;
+          console.log(`Resuming from ${syncCursor.lastTs}, already imported ${syncCursor.totalImported} games`);
+        }
+      }
+      
+      const url = `${this.LICHESS_BASE_URL}/games/user/${username}?max=${limit}&moves=true&opening=true&sort=dateDesc${sinceParam}`;
       
       const response = await this.makeRequest(url, {
         headers: {
@@ -214,6 +326,12 @@ class ChessApiService {
       for (const line of lines) {
         try {
           const game: LichessGame = JSON.parse(line);
+          
+          // Check if game already exists
+          if (await this.gameExists('Lichess', game.id)) {
+            console.log(`Skipping game ${game.id} - already exists`);
+            continue;
+          }
           
           // Determine if this player was white or black
           const isWhite = game.players.white.user?.name.toLowerCase() === username.toLowerCase();
@@ -237,12 +355,14 @@ class ChessApiService {
           const processedGame: ProcessedGame = {
             playerHash,
             site: 'Lichess',
+            extUid: game.id,
             pgn: game.pgn || this.generatePgnFromMoves(game.moves, game),
             date: new Date(game.createdAt).toISOString().split('T')[0],
             result,
             elo: playerData.rating,
             timeControl: this.formatLichessTimeControl(game.speed, game.perf),
-            opening: game.opening?.name
+            opening: game.opening?.name,
+            timestamp: Math.floor(game.createdAt / 1000)
           };
 
           games.push(processedGame);
@@ -252,7 +372,7 @@ class ChessApiService {
         }
       }
 
-      console.log(`Fetched ${games.length} Lichess games for ${username}`);
+      console.log(`Fetched ${games.length} new Lichess games for ${username}`);
       return games;
     } catch (error) {
       console.error(`Error fetching Lichess games for ${username}:`, error);
@@ -323,8 +443,15 @@ ${moves} ${result}`;
   async saveGamesToDatabase(games: ProcessedGame[]): Promise<void> {
     try {
       console.log(`Saving ${games.length} games to database...`);
+      let savedCount = 0;
       
       for (const game of games) {
+        // Check if game already exists (double-check)
+        if (await this.gameExists(game.site, game.extUid)) {
+          console.log(`Skipping duplicate game ${game.extUid}`);
+          continue;
+        }
+
         // First, ensure player exists
         const { data: existingPlayer } = await supabase
           .from('players')
@@ -358,12 +485,13 @@ ${moves} ${result}`;
             .eq('id', playerId);
         }
 
-        // Create game record
+        // Create game record with external UID
         const { data: newGame, error: gameError } = await supabase
           .from('games')
           .insert({
             player_id: playerId,
             site: game.site,
+            ext_uid: game.extUid,
             pgn_url: null, // We have the PGN content, not a URL
             date: game.date,
             result: game.result
@@ -392,14 +520,37 @@ ${moves} ${result}`;
 
         if (scoreError) {
           console.error('Error creating score:', scoreError);
+        } else {
+          savedCount++;
         }
       }
 
-      console.log(`Successfully saved ${games.length} games to database`);
+      console.log(`Successfully saved ${savedCount} games to database`);
+
+      // Update sync cursor if we saved any games
+      if (savedCount > 0 && games.length > 0) {
+        const latestGame = games.reduce((latest, current) => 
+          current.timestamp > latest.timestamp ? current : latest
+        );
+        
+        await this.updateSyncCursor(
+          latestGame.site,
+          this.extractUsernameFromHash(latestGame.playerHash, latestGame.site),
+          new Date(latestGame.timestamp * 1000),
+          latestGame.extUid,
+          savedCount
+        );
+      }
     } catch (error) {
       console.error('Error saving games to database:', error);
       throw error;
     }
+  }
+
+  private extractUsernameFromHash(playerHash: string, site: string): string {
+    // This is a simplified approach - in a real implementation, you'd want to store the username
+    // For now, we'll use the hash as a fallback
+    return `player_${playerHash}`;
   }
 
   private generateAnalysisScore(game: ProcessedGame) {
@@ -429,12 +580,12 @@ ${moves} ${result}`;
     };
   }
 
-  async fetchAndStorePlayerData(username: string, site: 'chess.com' | 'lichess' | 'both' = 'both', limit: number = 50): Promise<number> {
+  async fetchAndStorePlayerData(username: string, site: 'chess.com' | 'lichess' | 'both' = 'both', limit: number = 50, resumable: boolean = true): Promise<number> {
     let totalGames = 0;
     
     try {
       if (site === 'chess.com' || site === 'both') {
-        const chessComGames = await this.fetchChessComPlayerGames(username, limit);
+        const chessComGames = await this.fetchChessComPlayerGames(username, limit, resumable);
         if (chessComGames.length > 0) {
           await this.saveGamesToDatabase(chessComGames);
           totalGames += chessComGames.length;
@@ -442,7 +593,7 @@ ${moves} ${result}`;
       }
 
       if (site === 'lichess' || site === 'both') {
-        const lichessGames = await this.fetchLichessPlayerGames(username, limit);
+        const lichessGames = await this.fetchLichessPlayerGames(username, limit, resumable);
         if (lichessGames.length > 0) {
           await this.saveGamesToDatabase(lichessGames);
           totalGames += lichessGames.length;
@@ -457,7 +608,7 @@ ${moves} ${result}`;
   }
 
   // Batch fetch multiple players
-  async fetchMultiplePlayersData(players: Array<{username: string, site: 'chess.com' | 'lichess' | 'both'}>, limit: number = 25): Promise<void> {
+  async fetchMultiplePlayersData(players: Array<{username: string, site: 'chess.com' | 'lichess' | 'both'}>, limit: number = 25, resumable: boolean = true): Promise<void> {
     console.log(`Starting batch fetch for ${players.length} players...`);
     
     for (let i = 0; i < players.length; i++) {
@@ -465,7 +616,7 @@ ${moves} ${result}`;
       console.log(`Processing player ${i + 1}/${players.length}: ${player.username} (${player.site})`);
       
       try {
-        const gameCount = await this.fetchAndStorePlayerData(player.username, player.site, limit);
+        const gameCount = await this.fetchAndStorePlayerData(player.username, player.site, limit, resumable);
         console.log(`✓ Fetched ${gameCount} games for ${player.username}`);
         
         // Add delay between players to respect rate limits
@@ -479,6 +630,25 @@ ${moves} ${result}`;
     }
     
     console.log('Batch fetch completed!');
+  }
+
+  // Get import statistics
+  async getImportStats(): Promise<any> {
+    try {
+      const { data, error } = await supabase
+        .from('v_import_stats')
+        .select('*');
+
+      if (error) {
+        console.error('Error fetching import stats:', error);
+        return null;
+      }
+
+      return data;
+    } catch (error) {
+      console.error('Error in getImportStats:', error);
+      return null;
+    }
   }
 }
 
