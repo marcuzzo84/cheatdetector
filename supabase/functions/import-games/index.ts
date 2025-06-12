@@ -179,7 +179,7 @@ serve(async (req) => {
     let games: ProcessedGame[] = []
     
     if (site === 'chess.com') {
-      games = await fetchChessComGames(username, limit, supabaseClient)
+      games = await fetchChessCom(username, limit, supabaseClient)
     } else {
       games = await fetchLichess(username, limit, supabaseClient)
     }
@@ -246,90 +246,62 @@ serve(async (req) => {
 
 // Helper functions
 
-async function fetchChessComGames(username: string, limit: number, supabase: any): Promise<ProcessedGame[]> {
-  const CHESS_COM_BASE_URL = 'https://api.chess.com/pub'
-  const games: ProcessedGame[] = []
+// Chess.com helper function following your exact specification
+async function fetchChessCom(user: string, n: number, supabase?: any): Promise<ProcessedGame[]> {
+  const root = await (await fetch(`https://api.chess.com/pub/player/${user}/games/archives`)).json()
+  const months: string[] = root.archives.reverse()      // newest first
   
-  try {
-    // Get sync cursor for resumable imports
-    const { data: syncCursor } = await supabase
-      .from('sync_cursor')
-      .select('*')
-      .eq('site', 'Chess.com')
-      .eq('username', username)
-      .single()
+  // Create throttle function (1 req/s for Chess.com)
+  const limiter = createThrottle(1, 1000) // 1 request per 1000ms
+  const out: ProcessedGame[] = []
+  const playerHash = generatePlayerHash(user, 'Chess.com')
 
-    const lastImportTime = syncCursor ? new Date(syncCursor.last_ts).getTime() / 1000 : 0
-
-    // Get monthly archives
-    const archivesResponse = await fetch(`${CHESS_COM_BASE_URL}/player/${username}/games/archives`)
-    if (!archivesResponse.ok) {
-      throw new Error(`Chess.com API error: ${archivesResponse.status}`)
-    }
+  for (const m of months) {
+    if (out.length >= n) break
     
-    const archives = await archivesResponse.json()
-    if (!archives.archives || archives.archives.length === 0) {
-      return []
-    }
-
-    const playerHash = generatePlayerHash(username, 'Chess.com')
-    const sortedArchives = archives.archives.sort().reverse()
-
-    for (const archiveUrl of sortedArchives) {
-      if (games.length >= limit) break
-
-      // Rate limiting for Chess.com (1 req/sec)
-      await new Promise(resolve => setTimeout(resolve, 1100))
-
-      try {
-        const monthResponse = await fetch(archiveUrl)
-        if (!monthResponse.ok) continue
-
-        const monthData = await monthResponse.json()
-        if (!monthData.games || monthData.games.length === 0) continue
-
-        const sortedGames = monthData.games.sort((a: ChessComGame, b: ChessComGame) => b.end_time - a.end_time)
-
-        for (const game of sortedGames) {
-          if (games.length >= limit) break
-
-          // Skip games older than cursor
-          if (game.end_time <= lastImportTime) continue
-
-          // Check if game already exists
-          const { data: exists } = await supabase.rpc('game_exists', {
-            p_site: 'Chess.com',
-            p_ext_uid: game.uuid
-          })
-          if (exists) continue
-
-          const isWhite = game.white.username.toLowerCase() === username.toLowerCase()
-          const playerData = isWhite ? game.white : game.black
-
-          games.push({
-            playerHash,
-            site: 'Chess.com',
-            extUid: game.uuid,
-            pgn: game.pgn || '',
-            date: new Date(game.end_time * 1000).toISOString().split('T')[0],
-            result: normalizeResult(playerData.result),
-            elo: playerData.rating,
-            timeControl: game.time_control || 'unknown',
-            opening: extractOpeningFromPgn(game.pgn),
-            timestamp: game.end_time
-          })
-        }
-      } catch (error) {
-        console.error(`Error fetching month data:`, error)
-        continue
+    const games = await limiter(() => fetch(m).then(r => r.json()))()
+    
+    for (const g of games.games.reverse()) {             // newest first inside month
+      // Check if game already exists
+      if (supabase) {
+        const { data: exists } = await supabase.rpc('game_exists', {
+          p_site: 'Chess.com',
+          p_ext_uid: g.url.split('/').pop()
+        })
+        if (exists) continue
       }
-    }
 
-    return games
-  } catch (error) {
-    console.error(`Error fetching Chess.com games:`, error)
-    throw error
+      // Determine player perspective and result
+      const isWhite = g.white.username.toLowerCase() === user.toLowerCase()
+      const playerData = isWhite ? g.white : g.black
+      
+      // Map result to player perspective
+      let result: string
+      if (g.white.result === 'win') {
+        result = isWhite ? 'Win' : 'Loss'
+      } else if (g.black.result === 'win') {
+        result = isWhite ? 'Loss' : 'Win'
+      } else {
+        result = 'Draw'
+      }
+
+      out.push({
+        playerHash,
+        site: 'Chess.com',
+        extUid: g.url.split('/').pop(),                      // unique slug
+        date: new Date(g.end_time * 1000).toISOString().split('T')[0],
+        result,
+        pgn: g.pgn,
+        elo: playerData.rating,
+        timeControl: g.time_control || 'unknown',
+        opening: extractOpeningFromPgn(g.pgn),
+        timestamp: g.end_time
+      })
+      
+      if (out.length === n) break
+    }
   }
+  return out
 }
 
 // Updated Lichess helper function following your specification
@@ -347,8 +319,19 @@ async function fetchLichess(user: string, n: number, supabase?: any): Promise<Pr
   const lines = (await r.text()).trim().split('\n')
   const playerHash = generatePlayerHash(user, 'Lichess')
   
-  return lines.map(l => {
+  const processedGames: ProcessedGame[] = []
+  
+  for (const l of lines) {
     const j = JSON.parse(l)
+    
+    // Check if game already exists
+    if (supabase) {
+      const { data: exists } = await supabase.rpc('game_exists', {
+        p_site: 'Lichess',
+        p_ext_uid: j.id
+      })
+      if (exists) continue
+    }
     
     // Determine if this player was white or black
     const isWhite = j.players.white.user?.name.toLowerCase() === user.toLowerCase()
@@ -364,7 +347,7 @@ async function fetchLichess(user: string, n: number, supabase?: any): Promise<Pr
       result = 'Loss'
     }
     
-    return {
+    processedGames.push({
       playerHash,
       site: 'Lichess' as const,
       extUid: j.id,
@@ -375,8 +358,10 @@ async function fetchLichess(user: string, n: number, supabase?: any): Promise<Pr
       timeControl: formatLichessTimeControl(j.speed, j.perf),
       opening: j.opening?.name,
       timestamp: Math.floor(j.createdAt / 1000)
-    }
-  })
+    })
+  }
+  
+  return processedGames
 }
 
 async function importGame(game: ProcessedGame, supabase: any): Promise<boolean> {
@@ -485,6 +470,40 @@ async function updateSyncCursor(
 }
 
 // Utility functions
+
+// Create throttle function (equivalent to pThrottle)
+function createThrottle(limit: number, interval: number) {
+  let queue: Array<() => Promise<any>> = []
+  let running = 0
+  
+  const processQueue = async () => {
+    if (running >= limit || queue.length === 0) return
+    
+    running++
+    const task = queue.shift()!
+    
+    try {
+      await task()
+    } finally {
+      running--
+      setTimeout(processQueue, interval / limit)
+    }
+  }
+  
+  return (fn: () => Promise<any>) => {
+    return new Promise((resolve, reject) => {
+      queue.push(async () => {
+        try {
+          const result = await fn()
+          resolve(result)
+        } catch (error) {
+          reject(error)
+        }
+      })
+      processQueue()
+    })
+  }
+}
 
 function generatePlayerHash(username: string, site: string): string {
   const combined = `${site.toLowerCase()}_${username.toLowerCase()}`
