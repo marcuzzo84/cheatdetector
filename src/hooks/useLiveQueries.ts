@@ -294,19 +294,17 @@ export const useLiveSuspicionTrends = () => {
   return { trends, loading, error, refetch: fetchSuspicionTrends };
 };
 
-// New hook specifically for the daily suspicion view
+// Enhanced hook specifically for the daily suspicion view with live: true behavior
 export const useLiveDailySuspicionView = () => {
   const [dailyData, setDailyData] = useState<DailySuspicionView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isLive, setIsLive] = useState(false);
 
   const fetchDailyData = async () => {
     try {
-      const { data, error } = await supabase
-        .from('v_daily_suspicion')
-        .select('*')
-        .order('bucket', { ascending: false })
-        .limit(30);
+      // Use the realtime function for better performance
+      const { data, error } = await supabase.rpc('get_daily_suspicion_realtime');
 
       if (error) {
         console.error('Error fetching daily suspicion view:', error);
@@ -314,11 +312,20 @@ export const useLiveDailySuspicionView = () => {
         return;
       }
 
-      setDailyData(data || []);
+      // Transform the data to match our expected format
+      const transformedData: DailySuspicionView[] = data.map(row => ({
+        bucket: row.bucket,
+        rate: row.rate,
+        volume: row.volume
+      }));
+
+      setDailyData(transformedData || []);
       setError(null);
+      setIsLive(true);
     } catch (err) {
       console.error('Error in fetchDailyData:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
+      setIsLive(false);
     } finally {
       setLoading(false);
     }
@@ -328,22 +335,9 @@ export const useLiveDailySuspicionView = () => {
     // Initial fetch
     fetchDailyData();
 
-    // Set up realtime subscription to the view itself
+    // Set up realtime subscription with live: true behavior
     const channel = supabase
-      .channel('daily-suspicion-view-updates')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'v_daily_suspicion'
-        },
-        (payload) => {
-          console.log('Daily suspicion view updated:', payload);
-          // Refetch when the view changes
-          fetchDailyData();
-        }
-      )
+      .channel('daily-suspicion-live-updates')
       .on(
         'postgres_changes',
         {
@@ -351,11 +345,72 @@ export const useLiveDailySuspicionView = () => {
           schema: 'public',
           table: 'scores'
         },
-        () => {
-          // Also listen to scores table changes as backup
+        (payload) => {
+          console.log('🔴 Live update: New score inserted', payload);
+          // Immediately refetch when new scores arrive
           fetchDailyData();
         }
       )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'scores'
+        },
+        (payload) => {
+          console.log('🔴 Live update: Score updated', payload);
+          // Refetch when scores are updated
+          fetchDailyData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'scores'
+        },
+        (payload) => {
+          console.log('🔴 Live update: Score deleted', payload);
+          // Refetch when scores are deleted
+          fetchDailyData();
+        }
+      )
+      // Listen for custom notifications from our trigger
+      .on('broadcast', { event: 'daily_suspicion_changed' }, (payload) => {
+        console.log('🔴 Live update: Daily suspicion broadcast', payload);
+        fetchDailyData();
+      })
+      .subscribe((status) => {
+        console.log('📡 Daily suspicion subscription status:', status);
+        setIsLive(status === 'SUBSCRIBED');
+      });
+
+    return () => {
+      supabase.removeChannel(channel);
+      setIsLive(false);
+    };
+  }, []);
+
+  return { dailyData, loading, error, isLive, refetch: fetchDailyData };
+};
+
+// Hook for listening to PostgreSQL notifications
+export const usePostgresNotifications = () => {
+  const [notifications, setNotifications] = useState<any[]>([]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel('postgres-notifications')
+      .on('broadcast', { event: 'daily_suspicion_updated' }, (payload) => {
+        console.log('📢 Daily suspicion updated notification:', payload);
+        setNotifications(prev => [...prev, { type: 'daily_suspicion_updated', ...payload }]);
+      })
+      .on('broadcast', { event: 'high_risk_score' }, (payload) => {
+        console.log('📢 High risk score notification:', payload);
+        setNotifications(prev => [...prev, { type: 'high_risk_score', ...payload }]);
+      })
       .subscribe();
 
     return () => {
@@ -363,5 +418,5 @@ export const useLiveDailySuspicionView = () => {
     };
   }, []);
 
-  return { dailyData, loading, error, refetch: fetchDailyData };
+  return { notifications };
 };
