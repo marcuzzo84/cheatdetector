@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
-import { TrendingUp, Users, AlertTriangle, Activity, Eye, Clock } from 'lucide-react';
+import React from 'react';
+import { Eye } from 'lucide-react';
 import SuspicionChart from '../components/SuspicionChart';
 import RealtimeScoreStream from '../components/RealtimeScoreStream';
 import LiveKPICards from '../components/LiveKPICards';
 import LiveSuspiciousScoresTable from '../components/LiveSuspiciousScoresTable';
-import { mockDashboardData } from '../data/mockData';
 
 const Dashboard: React.FC = () => {
   return (
@@ -27,7 +26,7 @@ const Dashboard: React.FC = () => {
       {/* Real-time Score Stream */}
       <RealtimeScoreStream />
 
-      {/* Suspicion Rate Chart */}
+      {/* Suspicion Rate Chart - Now using live data */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">📈 Suspicion rate last 30 days</h3>
@@ -36,7 +35,8 @@ const Dashboard: React.FC = () => {
             View Details
           </button>
         </div>
-        <SuspicionChart data={mockDashboardData.suspicionTrends} />
+        {/* No need to pass data prop - component will use live data automatically */}
+        <SuspicionChart />
       </div>
 
       {/* Live High-Risk Games Table */}
