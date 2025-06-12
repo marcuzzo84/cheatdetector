@@ -1,0 +1,30 @@
+{
+  "name": "fairplay-scout-extension",
+  "version": "1.0.0",
+  "description": "FairPlay-Scout Chess Extension for importing games from Chess.com and Lichess",
+  "type": "module",
+  "scripts": {
+    "build": "rollup -c",
+    "dev": "rollup -c -w",
+    "clean": "rm -rf dist",
+    "package": "npm run build && cd dist && zip -r ../fairplay-scout-extension.zip .",
+    "test": "echo \"Extension tests would go here\""
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.7",
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-replace": "^5.0.5",
+    "rollup": "^4.9.6",
+    "rollup-plugin-copy": "^3.5.0"
+  },
+  "dependencies": {},
+  "keywords": [
+    "chess",
+    "anti-cheat",
+    "browser-extension",
+    "chrome-extension",
+    "fairplay"
+  ],
+  "author": "FairPlay-Scout Team",
+  "license": "MIT"
+}
