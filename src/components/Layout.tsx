@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown } from 'lucide-react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown, LogOut } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -11,6 +12,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [darkMode, setDarkMode] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
 
   const navigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
@@ -26,6 +29,32 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
     // In a real app, this would persist to localStorage and apply dark mode classes
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      navigate('/signin');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
+  // Get user display name
+  const getUserDisplayName = () => {
+    if (user?.user_metadata?.full_name) {
+      return user.user_metadata.full_name;
+    }
+    if (user?.email) {
+      return user.email.split('@')[0];
+    }
+    return 'User';
+  };
+
+  // Get user initials for avatar
+  const getUserInitials = () => {
+    const name = getUserDisplayName();
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   return (
@@ -68,9 +97,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 className="flex items-center space-x-2 p-2 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors"
               >
                 <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-                  <User className="h-4 w-4 text-white" />
+                  <span className="text-xs font-medium text-white">{getUserInitials()}</span>
                 </div>
-                <span className="hidden sm:block text-sm font-medium">Admin</span>
+                <span className="hidden sm:block text-sm font-medium">{getUserDisplayName()}</span>
                 <ChevronDown className="h-4 w-4" />
               </button>
 
@@ -78,18 +107,31 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
                   <div className="py-1">
                     <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-100">
-                      <p className="font-medium">Security Admin</p>
-                      <p className="text-gray-500">admin@fairplay-scout.com</p>
+                      <p className="font-medium">{getUserDisplayName()}</p>
+                      <p className="text-gray-500">{user?.email}</p>
                     </div>
-                    <button className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                      Profile Settings
-                    </button>
-                    <button className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-                      API Keys
-                    </button>
+                    <Link
+                      to="/settings"
+                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => setProfileOpen(false)}
+                    >
+                      <div className="flex items-center">
+                        <Settings className="w-4 h-4 mr-2" />
+                        Profile Settings
+                      </div>
+                    </Link>
                     <hr className="my-1" />
-                    <button className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50">
-                      Sign Out
+                    <button
+                      onClick={() => {
+                        setProfileOpen(false);
+                        handleSignOut();
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    >
+                      <div className="flex items-center">
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Sign Out
+                      </div>
                     </button>
                   </div>
                 </div>
