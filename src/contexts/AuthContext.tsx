@@ -24,6 +24,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
+  forceSignOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<{ error?: string }>;
   refreshProfile: () => Promise<void>;
 }
@@ -69,6 +70,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const profile = await fetchUserProfile(user.id);
       setUserProfile(profile);
     }
+  };
+
+  const clearAuthState = () => {
+    setUser(null);
+    setUserProfile(null);
+    setSession(null);
   };
 
   useEffect(() => {
@@ -145,7 +152,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      await supabase.auth.signOut();
+      clearAuthState();
+    } catch (error) {
+      console.error('Error signing out:', error);
+      // Force clear state even if API call fails
+      clearAuthState();
+    }
+  };
+
+  const forceSignOut = async () => {
+    try {
+      // Clear local state immediately
+      clearAuthState();
+      
+      // Clear any stored tokens/sessions
+      localStorage.removeItem('supabase.auth.token');
+      sessionStorage.clear();
+      
+      // Attempt to sign out from Supabase
+      await supabase.auth.signOut({ scope: 'global' });
+      
+      // Force reload the page to ensure complete cleanup
+      window.location.href = '/signin';
+    } catch (error) {
+      console.error('Error during force sign out:', error);
+      // Even if there's an error, force redirect to sign in
+      window.location.href = '/signin';
+    }
   };
 
   const resetPassword = async (email: string) => {
@@ -176,6 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     signIn,
     signUp,
     signOut,
+    forceSignOut,
     resetPassword,
     refreshProfile,
   };

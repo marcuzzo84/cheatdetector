@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown, LogOut, Download, Calendar } from 'lucide-react';
+import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown, LogOut, Download, Calendar, Power } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
@@ -11,9 +11,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [showForceLogoutConfirm, setShowForceLogoutConfirm] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, userProfile, isAdmin, signOut } = useAuth();
+  const { user, userProfile, isAdmin, signOut, forceSignOut } = useAuth();
 
   // Base navigation items available to all users
   const baseNavigation = [
@@ -48,6 +49,17 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       navigate('/signin');
     } catch (error) {
       console.error('Error signing out:', error);
+    }
+  };
+
+  const handleForceSignOut = async () => {
+    try {
+      await forceSignOut();
+      // forceSignOut handles the redirect
+    } catch (error) {
+      console.error('Error during force sign out:', error);
+      // Force redirect even if there's an error
+      window.location.href = '/signin';
     }
   };
 
@@ -133,7 +145,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               </button>
 
               {profileOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                <div className="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg border border-gray-200 z-50">
                   <div className="py-1">
                     <div className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">
                       <p className="font-medium">{getUserDisplayName()}</p>
@@ -176,16 +188,31 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       </>
                     )}
                     
+                    {/* Regular Sign Out */}
                     <button
                       onClick={() => {
                         setProfileOpen(false);
                         handleSignOut();
                       }}
-                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                      className="block w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
                     >
                       <div className="flex items-center">
                         <LogOut className="w-4 h-4 mr-2" />
                         Sign Out
+                      </div>
+                    </button>
+
+                    {/* Force Sign Out */}
+                    <button
+                      onClick={() => {
+                        setProfileOpen(false);
+                        setShowForceLogoutConfirm(true);
+                      }}
+                      className="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                    >
+                      <div className="flex items-center">
+                        <Power className="w-4 h-4 mr-2" />
+                        Force Logout
                       </div>
                     </button>
                   </div>
@@ -290,6 +317,60 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           className="fixed inset-0 z-30"
           onClick={() => setProfileOpen(false)}
         />
+      )}
+
+      {/* Force Logout Confirmation Modal */}
+      {showForceLogoutConfirm && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <div className="flex items-center justify-center mb-4">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <Power className="w-6 h-6 text-red-600" />
+                </div>
+              </div>
+              
+              <h3 className="text-lg font-medium text-gray-900 text-center mb-2">
+                Force Logout
+              </h3>
+              
+              <p className="text-sm text-gray-600 text-center mb-6">
+                This will immediately sign you out and clear all session data. 
+                You'll need to sign in again to access the dashboard.
+              </p>
+              
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-6">
+                <div className="flex items-start space-x-2">
+                  <div className="w-4 h-4 bg-yellow-400 rounded-full mt-0.5"></div>
+                  <div>
+                    <p className="text-sm text-yellow-800 font-medium">Warning</p>
+                    <p className="text-xs text-yellow-700 mt-1">
+                      Use this option if you're experiencing authentication issues or need to completely reset your session.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={() => setShowForceLogoutConfirm(false)}
+                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setShowForceLogoutConfirm(false);
+                    handleForceSignOut();
+                  }}
+                  className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                >
+                  Force Logout
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
