@@ -33,6 +33,12 @@ export interface SuspicionTrend {
   volume: number;
 }
 
+export interface DailySuspicionView {
+  bucket: string;
+  rate: number;
+  volume: number;
+}
+
 export const useLiveKPIs = () => {
   const [kpis, setKpis] = useState<KPIData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -220,18 +226,8 @@ export const useLiveSuspicionTrends = () => {
 
   const fetchSuspicionTrends = async () => {
     try {
-      // Query for daily suspicion trends over the last 30 days
-      const { data, error } = await supabase
-        .from('scores')
-        .select(`
-          created_at,
-          suspicion_level,
-          games!inner (
-            date
-          )
-        `)
-        .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-        .order('created_at', { ascending: true });
+      // Use the new function for efficient daily aggregation
+      const { data, error } = await supabase.rpc('get_suspicion_trends', { days_back: 30 });
 
       if (error) {
         console.error('Error fetching suspicion trends:', error);
@@ -239,36 +235,12 @@ export const useLiveSuspicionTrends = () => {
         return;
       }
 
-      // Group data by date and calculate daily metrics
-      const dailyData: { [key: string]: { total: number; suspicious: number } } = {};
-      
-      data.forEach(score => {
-        const date = new Date(score.created_at).toISOString().split('T')[0];
-        if (!dailyData[date]) {
-          dailyData[date] = { total: 0, suspicious: 0 };
-        }
-        dailyData[date].total++;
-        if (score.suspicion_level >= 70) {
-          dailyData[date].suspicious++;
-        }
-      });
-
-      // Convert to trend format
-      const trendData: SuspicionTrend[] = [];
-      for (let i = 29; i >= 0; i--) {
-        const date = new Date();
-        date.setDate(date.getDate() - i);
-        const dateStr = date.toISOString().split('T')[0];
-        
-        const dayData = dailyData[dateStr] || { total: 0, suspicious: 0 };
-        const suspicionRate = dayData.total > 0 ? (dayData.suspicious / dayData.total) * 100 : 0;
-        
-        trendData.push({
-          date: dateStr,
-          suspicion_rate: suspicionRate,
-          volume: dayData.total
-        });
-      }
+      // Transform the data to match our expected format
+      const trendData: SuspicionTrend[] = data.map(row => ({
+        date: row.date,
+        suspicion_rate: row.suspicion_rate,
+        volume: row.volume
+      }));
 
       setTrends(trendData);
       setError(null);
@@ -284,7 +256,7 @@ export const useLiveSuspicionTrends = () => {
     // Initial fetch
     fetchSuspicionTrends();
 
-    // Set up realtime subscription for live updates
+    // Set up realtime subscription for live updates using the aggregated view
     const channel = supabase
       .channel('suspicion-trends-updates')
       .on(
@@ -296,6 +268,19 @@ export const useLiveSuspicionTrends = () => {
         },
         () => {
           // Refetch trends when new scores are added
+          // The view will automatically recalculate daily aggregations
+          fetchSuspicionTrends();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'scores'
+        },
+        () => {
+          // Refetch trends when scores are updated
           fetchSuspicionTrends();
         }
       )
@@ -307,4 +292,76 @@ export const useLiveSuspicionTrends = () => {
   }, []);
 
   return { trends, loading, error, refetch: fetchSuspicionTrends };
+};
+
+// New hook specifically for the daily suspicion view
+export const useLiveDailySuspicionView = () => {
+  const [dailyData, setDailyData] = useState<DailySuspicionView[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchDailyData = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('v_daily_suspicion')
+        .select('*')
+        .order('bucket', { ascending: false })
+        .limit(30);
+
+      if (error) {
+        console.error('Error fetching daily suspicion view:', error);
+        setError(error.message);
+        return;
+      }
+
+      setDailyData(data || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error in fetchDailyData:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Initial fetch
+    fetchDailyData();
+
+    // Set up realtime subscription to the view itself
+    const channel = supabase
+      .channel('daily-suspicion-view-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'v_daily_suspicion'
+        },
+        (payload) => {
+          console.log('Daily suspicion view updated:', payload);
+          // Refetch when the view changes
+          fetchDailyData();
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'scores'
+        },
+        () => {
+          // Also listen to scores table changes as backup
+          fetchDailyData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  return { dailyData, loading, error, refetch: fetchDailyData };
 };
