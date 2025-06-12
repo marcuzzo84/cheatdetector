@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "FairPlay-Scout Chess Extension",
+  "version": "1.0.0",
+  "description": "Import chess games directly from Chess.com and Lichess for anti-cheat analysis",
+  "permissions": [
+    "activeTab",
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://*.chess.com/*",
+    "https://lichess.org/*",
+    "https://api.bolt.new/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.chess.com/*", "https://lichess.org/*"],
+      "js": ["content/content-script.js"],
+      "run_at": "document_end"
+    }
+  ],
+  "action": {
+    "default_popup": "ui/popup.html",
+    "default_title": "FairPlay-Scout"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["stockfish.wasm", "ui/*"],
+      "matches": ["https://*.chess.com/*", "https://lichess.org/*"]
+    }
+  ],
+  "icons": {
+    "16": "ui/icons/icon-16.png",
+    "32": "ui/icons/icon-32.png",
+    "48": "ui/icons/icon-48.png",
+    "128": "ui/icons/icon-128.png"
+  }
+}

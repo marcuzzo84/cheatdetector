@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FairPlay-Scout</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <!-- Header -->
+    <div class="header">
+      <div class="logo">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        <span>FairPlay-Scout</span>
+      </div>
+      <div class="version">v1.0.0</div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="tabs">
+      <button class="tab-button active" data-tab="import">Import</button>
+      <button class="tab-button" data-tab="history">History</button>
+      <button class="tab-button" data-tab="settings">Settings</button>
+    </div>
+
+    <!-- Import Tab -->
+    <div class="tab-content active" id="import-tab">
+      <div class="section">
+        <h3>Import Chess Games</h3>
+        <p class="description">Import games from Chess.com and Lichess for analysis</p>
+        
+        <form id="import-form">
+          <div class="form-group">
+            <label for="site-select">Site</label>
+            <select id="site-select" required>
+              <option value="">Select a site</option>
+              <option value="chess.com">Chess.com</option>
+              <option value="lichess">Lichess</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="username-input">Username</label>
+            <input type="text" id="username-input" placeholder="Enter username" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="games-input">Number of Games</label>
+            <input type="number" id="games-input" value="50" min="1" max="100" required>
+            <small>Maximum 100 games per import</small>
+          </div>
+          
+          <button type="submit" class="btn-primary" id="import-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7,10 12,15 17,10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Import Games
+          </button>
+        </form>
+        
+        <!-- Import Status -->
+        <div id="import-status" class="status-card" style="display: none;">
+          <div class="status-header">
+            <div class="spinner"></div>
+            <span>Import in Progress</span>
+          </div>
+          <div class="status-details">
+            <div id="status-text">Queued for processing...</div>
+            <div class="progress-bar">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div id="progress-text">0 games imported</div>
+          </div>
+          <button class="btn-secondary" id="cancel-import-btn">Cancel Import</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Tab -->
+    <div class="tab-content" id="history-tab">
+      <div class="section">
+        <h3>Import History</h3>
+        <div id="history-list" class="history-list">
+          <div class="loading">Loading history...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Settings Tab -->
+    <div class="tab-content" id="settings-tab">
+      <div class="section">
+        <h3>Settings</h3>
+        
+        <div class="setting-group">
+          <label class="setting-label">
+            <input type="checkbox" id="auto-import-setting">
+            <span class="checkmark"></span>
+            Auto-import after games
+          </label>
+          <small>Automatically import games after they finish</small>
+        </div>
+        
+        <div class="setting-group">
+          <label for="default-limit-setting">Default import limit</label>
+          <input type="number" id="default-limit-setting" value="50" min="1" max="100">
+        </div>
+        
+        <div class="setting-group">
+          <label class="setting-label">
+            <input type="checkbox" id="notifications-setting" checked>
+            <span class="checkmark"></span>
+            Show notifications
+          </label>
+          <small>Display import status notifications</small>
+        </div>
+        
+        <button class="btn-primary" id="save-settings-btn">Save Settings</button>
+      </div>
+      
+      <div class="section">
+        <h3>About</h3>
+        <div class="about-info">
+          <p><strong>FairPlay-Scout Extension</strong></p>
+          <p>Version 1.0.0</p>
+          <p>Import chess games for anti-cheat analysis</p>
+          <div class="links">
+            <a href="#" id="open-dashboard">Open Dashboard</a>
+            <a href="#" id="view-docs">Documentation</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Connection Status -->
+    <div class="footer">
+      <div class="connection-status" id="connection-status">
+        <div class="status-indicator offline"></div>
+        <span>Connecting...</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
