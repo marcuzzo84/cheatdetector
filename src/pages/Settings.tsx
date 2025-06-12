@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Save, Upload, Key, Shield, Database, Activity, AlertCircle, CheckCircle, User, Eye, EyeOff, Copy, Plus, Trash2, Edit3, RefreshCw, Calendar, Clock } from 'lucide-react';
+import { Save, Upload, Key, Shield, Database, Activity, AlertCircle, CheckCircle, User, Eye, EyeOff, Copy, Plus, Trash2, Edit3, RefreshCw, Calendar, Clock, ArrowLeft } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface ApiKey {
   id: string;
@@ -22,12 +23,38 @@ interface UserProfile {
 }
 
 const Settings: React.FC = () => {
+  const { user, userProfile, isAdmin } = useAuth();
+
+  // Redirect non-admin users (this should be handled by AdminRoute, but extra safety)
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center space-x-4">
+          <Link to="/dashboard" className="p-2 rounded-lg bg-gray-100 hover:bg-gray-200 transition-colors">
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
+          </Link>
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Access Denied</h1>
+            <p className="mt-2 text-gray-600">Administrator privileges required</p>
+          </div>
+        </div>
+        
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5 text-red-500" />
+            <span className="text-red-700">You don't have permission to access admin settings.</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Profile state
   const [profile, setProfile] = useState<UserProfile>({
-    name: 'Security Admin',
-    email: 'admin@fairplay-scout.com',
-    role: 'Administrator',
-    avatar: '',
+    name: userProfile?.full_name || 'Security Admin',
+    email: user?.email || 'admin@fairplay-scout.com',
+    role: userProfile?.role || 'Administrator',
+    avatar: userProfile?.avatar_url || '',
     twoFactorEnabled: true,
     lastLogin: '2024-01-15 14:30:00'
   });
@@ -165,130 +192,37 @@ const Settings: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Settings</h1>
-        <p className="mt-2 text-gray-600">Manage your profile, API keys, and system configuration</p>
+      {/* Header with Admin Badge */}
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center space-x-3">
+            <h1 className="text-3xl font-bold text-gray-900">Admin Settings</h1>
+            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-purple-100 text-purple-800">
+              <Shield className="w-4 h-4 mr-1" />
+              Administrator
+            </span>
+          </div>
+          <p className="mt-2 text-gray-600">Manage system configuration, API keys, and administrative settings</p>
+        </div>
+        <div className="flex items-center space-x-2">
+          <div className="bg-purple-50 px-3 py-2 rounded-lg">
+            <p className="text-sm text-purple-700">
+              <strong>Role:</strong> {profile.role}
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Profile Settings */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center space-x-2">
-            <User className="w-5 h-5 text-blue-600" />
-            <h3 className="text-lg font-semibold text-gray-900">Profile Settings</h3>
-          </div>
-          <button
-            onClick={() => setIsEditingProfile(!isEditingProfile)}
-            className="flex items-center space-x-2 px-3 py-1 text-blue-600 hover:text-blue-800 transition-colors"
-          >
-            <Edit3 className="w-4 h-4" />
-            <span>{isEditingProfile ? 'Cancel' : 'Edit'}</span>
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-4">
-            <div className="flex items-center space-x-4">
-              <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center">
-                <User className="w-8 h-8 text-white" />
-              </div>
-              <div>
-                <h4 className="text-lg font-medium text-gray-900">{profile.name}</h4>
-                <p className="text-sm text-gray-500">{profile.role}</p>
-                <p className="text-xs text-gray-400">Last login: {profile.lastLogin}</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                <input
-                  type="text"
-                  value={profile.name}
-                  onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                  disabled={!isEditingProfile}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
-                <input
-                  type="email"
-                  value={profile.email}
-                  onChange={(e) => setProfile({ ...profile, email: e.target.value })}
-                  disabled={!isEditingProfile}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                <input
-                  type="text"
-                  value={profile.role}
-                  disabled
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-500"
-                />
-              </div>
-            </div>
-
-            {isEditingProfile && (
-              <button
-                onClick={handleSaveProfile}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-              >
-                <Save className="w-4 h-4" />
-                <span>Save Profile</span>
-              </button>
-            )}
-          </div>
-
-          <div className="space-y-4">
-            <h4 className="font-medium text-gray-900">Security Settings</h4>
-            
-            <div className="space-y-3">
-              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                <div className="flex items-center space-x-2">
-                  <Shield className="w-4 h-4 text-green-600" />
-                  <span className="text-sm font-medium text-green-900">Two-Factor Authentication</span>
-                </div>
-                <span className="text-xs text-green-700 bg-green-100 px-2 py-1 rounded">Enabled</span>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Change Password</label>
-                <input
-                  type="password"
-                  placeholder="Current password"
-                  value={currentPassword}
-                  onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <input
-                  type="password"
-                  placeholder="New password"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <input
-                  type="password"
-                  placeholder="Confirm new password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <button
-                  onClick={handleChangePassword}
-                  disabled={!currentPassword || !newPassword || !confirmPassword}
-                  className="w-full px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Change Password
-                </button>
-              </div>
-            </div>
+      {/* Admin Warning */}
+      <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+        <div className="flex items-start space-x-3">
+          <Shield className="w-5 h-5 text-purple-600 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-medium text-purple-900">Administrator Access</h4>
+            <p className="text-sm text-purple-700 mt-1">
+              You have full administrative privileges. Changes made here affect the entire system and all users. 
+              Please exercise caution when modifying system settings.
+            </p>
           </div>
         </div>
       </div>
@@ -364,12 +298,134 @@ const Settings: React.FC = () => {
         </div>
       </div>
 
+      {/* Profile Settings */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-2">
+            <User className="w-5 h-5 text-blue-600" />
+            <h3 className="text-lg font-semibold text-gray-900">Admin Profile Settings</h3>
+          </div>
+          <button
+            onClick={() => setIsEditingProfile(!isEditingProfile)}
+            className="flex items-center space-x-2 px-3 py-1 text-blue-600 hover:text-blue-800 transition-colors"
+          >
+            <Edit3 className="w-4 h-4" />
+            <span>{isEditingProfile ? 'Cancel' : 'Edit'}</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="space-y-4">
+            <div className="flex items-center space-x-4">
+              <div className="w-16 h-16 bg-purple-600 rounded-full flex items-center justify-center">
+                <User className="w-8 h-8 text-white" />
+              </div>
+              <div>
+                <h4 className="text-lg font-medium text-gray-900">{profile.name}</h4>
+                <p className="text-sm text-purple-600 font-medium">{profile.role}</p>
+                <p className="text-xs text-gray-400">Last login: {profile.lastLogin}</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={profile.name}
+                  onChange={(e) => setProfile({ ...profile, name: e.target.value })}
+                  disabled={!isEditingProfile}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+                <input
+                  type="email"
+                  value={profile.email}
+                  onChange={(e) => setProfile({ ...profile, email: e.target.value })}
+                  disabled={!isEditingProfile}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                <input
+                  type="text"
+                  value={profile.role}
+                  disabled
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md bg-purple-50 text-purple-700 font-medium"
+                />
+              </div>
+            </div>
+
+            {isEditingProfile && (
+              <button
+                onClick={handleSaveProfile}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              >
+                <Save className="w-4 h-4" />
+                <span>Save Profile</span>
+              </button>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <h4 className="font-medium text-gray-900">Security Settings</h4>
+            
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                <div className="flex items-center space-x-2">
+                  <Shield className="w-4 h-4 text-green-600" />
+                  <span className="text-sm font-medium text-green-900">Two-Factor Authentication</span>
+                </div>
+                <span className="text-xs text-green-700 bg-green-100 px-2 py-1 rounded">Enabled</span>
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Change Password</label>
+                <input
+                  type="password"
+                  placeholder="Current password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="password"
+                  placeholder="New password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                  onClick={handleChangePassword}
+                  disabled={!currentPassword || !newPassword || !confirmPassword}
+                  className="w-full px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Change Password
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* API Keys Management */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center space-x-2">
             <Key className="w-5 h-5 text-green-600" />
-            <h3 className="text-lg font-semibold text-gray-900">API Keys</h3>
+            <h3 className="text-lg font-semibold text-gray-900">API Keys Management</h3>
           </div>
           <button
             onClick={() => setShowNewApiKeyModal(true)}

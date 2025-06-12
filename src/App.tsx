@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
 import ProtectedRoute from './components/auth/ProtectedRoute';
+import AdminRoute from './components/auth/AdminRoute';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Players from './pages/Players';
@@ -60,13 +61,6 @@ function App() {
               </Layout>
             </ProtectedRoute>
           } />
-          <Route path="/scheduler" element={
-            <ProtectedRoute>
-              <Layout>
-                <SchedulerDashboard />
-              </Layout>
-            </ProtectedRoute>
-          } />
           <Route path="/players/:hash" element={
             <ProtectedRoute>
               <Layout>
@@ -74,12 +68,21 @@ function App() {
               </Layout>
             </ProtectedRoute>
           } />
+          
+          {/* Admin-only routes */}
           <Route path="/settings" element={
-            <ProtectedRoute>
+            <AdminRoute>
               <Layout>
                 <Settings />
               </Layout>
-            </ProtectedRoute>
+            </AdminRoute>
+          } />
+          <Route path="/scheduler" element={
+            <AdminRoute>
+              <Layout>
+                <SchedulerDashboard />
+              </Layout>
+            </AdminRoute>
           } />
           
           {/* Catch all route - redirect to dashboard */}

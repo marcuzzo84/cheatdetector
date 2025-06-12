@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown, LogOut, Download } from 'lucide-react';
+import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown, LogOut, Download, Calendar } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
@@ -13,15 +13,25 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [profileOpen, setProfileOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user, userProfile, isAdmin, signOut } = useAuth();
 
-  const navigation = [
+  // Base navigation items available to all users
+  const baseNavigation = [
     { name: 'Dashboard', href: '/dashboard', icon: Home },
     { name: 'Players', href: '/players', icon: Users },
     { name: 'Games', href: '/games', icon: GamepadIcon },
     { name: 'Import', href: '/import', icon: Download },
+  ];
+
+  // Admin-only navigation items
+  const adminNavigation = [
     { name: 'Settings', href: '/settings', icon: Settings },
   ];
+
+  // Combine navigation based on user role
+  const navigation = isAdmin 
+    ? [...baseNavigation, ...adminNavigation]
+    : baseNavigation;
 
   const isActiveRoute = (href: string) => {
     return location.pathname === href || (href === '/dashboard' && location.pathname === '/');
@@ -43,6 +53,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   // Get user display name
   const getUserDisplayName = () => {
+    if (userProfile?.full_name) {
+      return userProfile.full_name;
+    }
     if (user?.user_metadata?.full_name) {
       return user.user_metadata.full_name;
     }
@@ -56,6 +69,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const getUserInitials = () => {
     const name = getUserDisplayName();
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  // Get user role display
+  const getUserRole = () => {
+    if (userProfile?.role) {
+      return userProfile.role.charAt(0).toUpperCase() + userProfile.role.slice(1);
+    }
+    return 'User';
   };
 
   return (
@@ -97,31 +118,64 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 onClick={() => setProfileOpen(!profileOpen)}
                 className="flex items-center space-x-2 p-2 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors"
               >
-                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                  isAdmin ? 'bg-purple-600' : 'bg-blue-600'
+                }`}>
                   <span className="text-xs font-medium text-white">{getUserInitials()}</span>
                 </div>
-                <span className="hidden sm:block text-sm font-medium">{getUserDisplayName()}</span>
+                <div className="hidden sm:block text-left">
+                  <div className="text-sm font-medium">{getUserDisplayName()}</div>
+                  <div className={`text-xs ${isAdmin ? 'text-purple-600' : 'text-gray-500'}`}>
+                    {getUserRole()}
+                  </div>
+                </div>
                 <ChevronDown className="h-4 w-4" />
               </button>
 
               {profileOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 z-50">
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-md shadow-lg border border-gray-200 z-50">
                   <div className="py-1">
-                    <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-100">
+                    <div className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">
                       <p className="font-medium">{getUserDisplayName()}</p>
                       <p className="text-gray-500">{user?.email}</p>
-                    </div>
-                    <Link
-                      to="/settings"
-                      className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
-                      onClick={() => setProfileOpen(false)}
-                    >
-                      <div className="flex items-center">
-                        <Settings className="w-4 h-4 mr-2" />
-                        Profile Settings
+                      <div className="flex items-center mt-1">
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          isAdmin 
+                            ? 'bg-purple-100 text-purple-800' 
+                            : 'bg-blue-100 text-blue-800'
+                        }`}>
+                          {getUserRole()}
+                        </span>
                       </div>
-                    </Link>
-                    <hr className="my-1" />
+                    </div>
+                    
+                    {/* Show Settings link only for admins */}
+                    {isAdmin && (
+                      <>
+                        <Link
+                          to="/settings"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => setProfileOpen(false)}
+                        >
+                          <div className="flex items-center">
+                            <Settings className="w-4 h-4 mr-2" />
+                            Admin Settings
+                          </div>
+                        </Link>
+                        <Link
+                          to="/scheduler"
+                          className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                          onClick={() => setProfileOpen(false)}
+                        >
+                          <div className="flex items-center">
+                            <Calendar className="w-4 h-4 mr-2" />
+                            Scheduler Dashboard
+                          </div>
+                        </Link>
+                        <hr className="my-1" />
+                      </>
+                    )}
+                    
                     <button
                       onClick={() => {
                         setProfileOpen(false);
@@ -201,6 +255,22 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 );
               })}
             </nav>
+            
+            {/* Role indicator in sidebar */}
+            <div className="p-4 border-t border-gray-200">
+              <div className={`flex items-center space-x-2 p-2 rounded-lg ${
+                isAdmin ? 'bg-purple-50' : 'bg-blue-50'
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${
+                  isAdmin ? 'bg-purple-500' : 'bg-blue-500'
+                }`}></div>
+                <span className={`text-xs font-medium ${
+                  isAdmin ? 'text-purple-700' : 'text-blue-700'
+                }`}>
+                  {getUserRole()} Access
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
