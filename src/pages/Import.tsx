@@ -165,12 +165,27 @@ const Import: React.FC = () => {
     setLiveScores([]);
 
     try {
+      // Get the user's session token or use a demo token
+      let authToken = 'demo-token';
+      
+      if (user?.access_token) {
+        authToken = user.access_token;
+      } else {
+        // Try to get the session
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          authToken = session.access_token;
+        }
+      }
+
+      console.log('Using auth token:', authToken ? 'Present' : 'Missing');
+
       // Call the Enhanced Edge Function with rate limiting
       const response = await fetch(`${supabaseUrl}/functions/v1/import-games`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user?.access_token || 'demo-token'}`,
+          'Authorization': `Bearer ${authToken}`,
         },
         body: JSON.stringify({
           site: formData.site,
@@ -178,6 +193,9 @@ const Import: React.FC = () => {
           limit: formData.limit
         })
       });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
       // Handle rate limiting
       if (response.status === 429) {
@@ -210,7 +228,16 @@ const Import: React.FC = () => {
       }
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorText = await response.text();
+        console.error('Response error:', errorText);
+        
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: `HTTP ${response.status}: ${errorText}` };
+        }
+        
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
@@ -221,6 +248,7 @@ const Import: React.FC = () => {
       }));
 
       const result = await response.json();
+      console.log('Import result:', result);
       
       // Wait a moment for any final scores to come through
       setTimeout(() => {
@@ -237,6 +265,7 @@ const Import: React.FC = () => {
       }, 2000);
 
     } catch (error) {
+      console.error('Import error:', error);
       setProgress({
         status: 'error',
         message: error instanceof Error ? error.message : 'Import failed',
@@ -462,6 +491,16 @@ const Import: React.FC = () => {
                     💡 {rateLimitInfo.recommendation}
                   </p>
                 </div>
+              </div>
+            </div>
+
+            {/* Authentication Status */}
+            <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-2">
+                <Shield className="w-4 h-4 text-gray-600" />
+                <span className="text-sm text-gray-700">
+                  Auth Status: {user ? `Signed in as ${user.email}` : 'Demo mode (no auth required)'}
+                </span>
               </div>
             </div>
           </div>
