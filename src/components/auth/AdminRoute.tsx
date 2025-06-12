@@ -8,7 +8,7 @@ interface AdminRouteProps {
 }
 
 const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
-  const { user, userProfile, isAdmin, loading, forceSignOut } = useAuth();
+  const { user, userProfile, isAdmin, loading, cancelAuth } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [progress, setProgress] = useState(0);
@@ -61,17 +61,12 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
     }
   }, [loading, user, showProgress]);
 
-  const handleCancelConnection = async () => {
-    try {
-      // Force sign out and clear all auth state
-      await forceSignOut();
-      // Navigate to sign in page
-      navigate('/signin', { replace: true });
-    } catch (error) {
-      console.error('Error canceling admin connection:', error);
-      // Force navigation even if sign out fails
-      window.location.href = '/signin';
-    }
+  const handleCancelConnection = () => {
+    console.log('🚫 User cancelled admin connection');
+    // Cancel the auth process
+    cancelAuth();
+    // Navigate to sign in page immediately
+    navigate('/signin', { replace: true });
   };
 
   const handleStopConnection = () => {

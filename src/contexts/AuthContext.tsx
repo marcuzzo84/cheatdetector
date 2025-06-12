@@ -25,6 +25,7 @@ interface AuthContextType {
   signUp: (email: string, password: string, fullName: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   forceSignOut: () => Promise<void>;
+  cancelAuth: () => void;
   resetPassword: (email: string) => Promise<{ error?: string }>;
   refreshProfile: () => Promise<void>;
 }
@@ -44,6 +45,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [authCancelled, setAuthCancelled] = useState(false);
 
   const fetchUserProfile = async (userId: string) => {
     try {
@@ -76,44 +78,96 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setUserProfile(null);
     setSession(null);
+    setLoading(false);
+    setAuthCancelled(false);
+  };
+
+  const cancelAuth = () => {
+    console.log('🚫 Authentication cancelled by user');
+    setAuthCancelled(true);
+    clearAuthState();
   };
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        const profile = await fetchUserProfile(session.user.id);
-        setUserProfile(profile);
+    let mounted = true;
+    
+    const initializeAuth = async () => {
+      try {
+        // Don't proceed if auth was cancelled
+        if (authCancelled) {
+          clearAuthState();
+          return;
+        }
+
+        // Get initial session
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (!mounted || authCancelled) return;
+        
+        if (error) {
+          console.error('Error getting session:', error);
+          setLoading(false);
+          return;
+        }
+
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user && !authCancelled) {
+          const profile = await fetchUserProfile(session.user.id);
+          if (mounted && !authCancelled) {
+            setUserProfile(profile);
+          }
+        }
+        
+        if (mounted && !authCancelled) {
+          setLoading(false);
+        }
+      } catch (error) {
+        console.error('Error initializing auth:', error);
+        if (mounted) {
+          setLoading(false);
+        }
       }
-      
-      setLoading(false);
-    });
+    };
+
+    // Initialize auth
+    initializeAuth();
 
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (!mounted || authCancelled) return;
+      
+      console.log('Auth state changed:', event);
+      
       setSession(session);
       setUser(session?.user ?? null);
       
-      if (session?.user) {
+      if (session?.user && !authCancelled) {
         const profile = await fetchUserProfile(session.user.id);
-        setUserProfile(profile);
+        if (mounted && !authCancelled) {
+          setUserProfile(profile);
+        }
       } else {
         setUserProfile(null);
       }
       
-      setLoading(false);
+      if (mounted && !authCancelled) {
+        setLoading(false);
+      }
     });
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
+  }, [authCancelled]);
 
   const signIn = async (email: string, password: string) => {
     try {
+      setAuthCancelled(false); // Reset cancel state
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -131,6 +185,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signUp = async (email: string, password: string, fullName: string) => {
     try {
+      setAuthCancelled(false); // Reset cancel state
       const { error } = await supabase.auth.signUp({
         email,
         password,
@@ -164,18 +219,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const forceSignOut = async () => {
     try {
+      console.log('🔄 Force sign out initiated');
+      
       // Clear local state immediately
       clearAuthState();
       
       // Clear any stored tokens/sessions
-      localStorage.removeItem('supabase.auth.token');
-      sessionStorage.clear();
+      try {
+        localStorage.removeItem('supabase.auth.token');
+        localStorage.removeItem('sb-' + supabaseUrl.split('//')[1].split('.')[0] + '-auth-token');
+        sessionStorage.clear();
+      } catch (e) {
+        console.warn('Error clearing storage:', e);
+      }
       
       // Attempt to sign out from Supabase
-      await supabase.auth.signOut({ scope: 'global' });
+      try {
+        await supabase.auth.signOut({ scope: 'global' });
+      } catch (e) {
+        console.warn('Error signing out from Supabase:', e);
+      }
       
       // Force reload the page to ensure complete cleanup
-      window.location.href = '/signin';
+      setTimeout(() => {
+        window.location.href = '/signin';
+      }, 100);
     } catch (error) {
       console.error('Error during force sign out:', error);
       // Even if there's an error, force redirect to sign in
@@ -206,12 +274,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     user,
     userProfile,
     session,
-    loading,
+    loading: loading && !authCancelled,
     isAdmin,
     signIn,
     signUp,
     signOut,
     forceSignOut,
+    cancelAuth,
     resetPassword,
     refreshProfile,
   };

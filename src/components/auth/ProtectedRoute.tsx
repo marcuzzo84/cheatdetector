@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user, loading, forceSignOut } = useAuth();
+  const { user, loading, cancelAuth } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [progress, setProgress] = useState(0);
@@ -61,17 +61,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     }
   }, [loading, user, showProgress]);
 
-  const handleCancelConnection = async () => {
-    try {
-      // Force sign out and clear all auth state
-      await forceSignOut();
-      // Navigate to sign in page
-      navigate('/signin', { replace: true });
-    } catch (error) {
-      console.error('Error canceling connection:', error);
-      // Force navigation even if sign out fails
-      window.location.href = '/signin';
-    }
+  const handleCancelConnection = () => {
+    console.log('🚫 User cancelled connection');
+    // Cancel the auth process
+    cancelAuth();
+    // Navigate to sign in page immediately
+    navigate('/signin', { replace: true });
   };
 
   const handleStopConnection = () => {
@@ -262,5 +257,3 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   return <>{children}</>;
 };
-
-export default ProtectedRoute;
