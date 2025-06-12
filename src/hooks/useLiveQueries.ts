@@ -27,6 +27,12 @@ export interface SuspiciousScore {
   player_id: string;
 }
 
+export interface SuspicionTrend {
+  date: string;
+  suspicion_rate: number;
+  volume: number;
+}
+
 export const useLiveKPIs = () => {
   const [kpis, setKpis] = useState<KPIData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -205,4 +211,100 @@ export const useLiveSuspiciousScores = () => {
   }, []);
 
   return { scores, loading, error, refetch: fetchSuspiciousScores };
+};
+
+export const useLiveSuspicionTrends = () => {
+  const [trends, setTrends] = useState<SuspicionTrend[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchSuspicionTrends = async () => {
+    try {
+      // Query for daily suspicion trends over the last 30 days
+      const { data, error } = await supabase
+        .from('scores')
+        .select(`
+          created_at,
+          suspicion_level,
+          games!inner (
+            date
+          )
+        `)
+        .gte('created_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        console.error('Error fetching suspicion trends:', error);
+        setError(error.message);
+        return;
+      }
+
+      // Group data by date and calculate daily metrics
+      const dailyData: { [key: string]: { total: number; suspicious: number } } = {};
+      
+      data.forEach(score => {
+        const date = new Date(score.created_at).toISOString().split('T')[0];
+        if (!dailyData[date]) {
+          dailyData[date] = { total: 0, suspicious: 0 };
+        }
+        dailyData[date].total++;
+        if (score.suspicion_level >= 70) {
+          dailyData[date].suspicious++;
+        }
+      });
+
+      // Convert to trend format
+      const trendData: SuspicionTrend[] = [];
+      for (let i = 29; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        
+        const dayData = dailyData[dateStr] || { total: 0, suspicious: 0 };
+        const suspicionRate = dayData.total > 0 ? (dayData.suspicious / dayData.total) * 100 : 0;
+        
+        trendData.push({
+          date: dateStr,
+          suspicion_rate: suspicionRate,
+          volume: dayData.total
+        });
+      }
+
+      setTrends(trendData);
+      setError(null);
+    } catch (err) {
+      console.error('Error in fetchSuspicionTrends:', err);
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    // Initial fetch
+    fetchSuspicionTrends();
+
+    // Set up realtime subscription for live updates
+    const channel = supabase
+      .channel('suspicion-trends-updates')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'scores'
+        },
+        () => {
+          // Refetch trends when new scores are added
+          fetchSuspicionTrends();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  return { trends, loading, error, refetch: fetchSuspicionTrends };
 };
