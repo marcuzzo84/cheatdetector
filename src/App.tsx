@@ -8,6 +8,7 @@ import Players from './pages/Players';
 import Games from './pages/Games';
 import PlayerDetail from './pages/PlayerDetail';
 import Settings from './pages/Settings';
+import Import from './pages/Import';
 import SignIn from './pages/SignIn';
 import SignUp from './pages/SignUp';
 import ForgotPassword from './pages/ForgotPassword';
@@ -48,6 +49,13 @@ function App() {
             <ProtectedRoute>
               <Layout>
                 <Games />
+              </Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/import" element={
+            <ProtectedRoute>
+              <Layout>
+                <Import />
               </Layout>
             </ProtectedRoute>
           } />
