@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Save, Upload, Key, Shield, Database, Activity, AlertCircle, CheckCircle, User, Eye, EyeOff, Copy, Plus, Trash2, Edit3, RefreshCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Save, Upload, Key, Shield, Database, Activity, AlertCircle, CheckCircle, User, Eye, EyeOff, Copy, Plus, Trash2, Edit3, RefreshCw, Calendar, Clock } from 'lucide-react';
 
 interface ApiKey {
   id: string;
@@ -287,6 +288,77 @@ const Settings: React.FC = () => {
                   Change Password
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Scheduler Management */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-2">
+            <Calendar className="w-5 h-5 text-purple-600" />
+            <h3 className="text-lg font-semibold text-gray-900">Scheduler Management</h3>
+          </div>
+          <Link
+            to="/scheduler"
+            className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+          >
+            <Clock className="w-4 h-4" />
+            <span>View Scheduler Dashboard</span>
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-4 bg-purple-50 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <Calendar className="w-5 h-5 text-purple-600" />
+              <span className="font-medium text-purple-900">Nightly Sync</span>
+            </div>
+            <p className="text-sm text-purple-700 mb-2">Daily import of tracked players</p>
+            <div className="text-xs text-purple-600">
+              <p>Schedule: 04:15 UTC daily</p>
+              <p>Status: Active</p>
+              <p>Last run: Today at 04:15</p>
+            </div>
+          </div>
+
+          <div className="p-4 bg-blue-50 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <Activity className="w-5 h-5 text-blue-600" />
+              <span className="font-medium text-blue-900">Weekly Deep Sync</span>
+            </div>
+            <p className="text-sm text-blue-700 mb-2">Comprehensive sync for top players</p>
+            <div className="text-xs text-blue-600">
+              <p>Schedule: Sunday 02:00 UTC</p>
+              <p>Status: Active</p>
+              <p>Last run: Last Sunday</p>
+            </div>
+          </div>
+
+          <div className="p-4 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <Clock className="w-5 h-5 text-gray-600" />
+              <span className="font-medium text-gray-900">Priority Sync</span>
+            </div>
+            <p className="text-sm text-gray-700 mb-2">Hourly sync for suspicious players</p>
+            <div className="text-xs text-gray-600">
+              <p>Schedule: Every hour</p>
+              <p>Status: Disabled</p>
+              <p>Last run: Never</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 p-3 bg-purple-50 rounded-lg">
+          <div className="flex items-start space-x-2">
+            <Calendar className="w-5 h-5 text-purple-600 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-medium text-purple-900">Automated Scheduling</h4>
+              <p className="text-sm text-purple-700 mt-1">
+                The scheduler automatically imports games from tracked players based on the bolt.schedule.yaml configuration. 
+                Visit the Scheduler Dashboard to monitor job executions and trigger manual imports.
+              </p>
             </div>
           </div>
         </div>

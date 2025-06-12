@@ -1,0 +1,197 @@
+# FairPlay-Scout Automated Import Scheduler
+# This configuration defines automated import jobs for chess game analysis
+
+# Global scheduler settings
+settings:
+  timezone: "UTC"
+  max_concurrent_jobs: 3
+  retry_attempts: 3
+  retry_delay: "5m"
+  notification_webhook: "${DISCORD_WEBHOOK_URL}"
+  
+# Scheduled import jobs
+jobs:
+  # Nightly sync for all tracked players
+  - name: nightly-sync
+    description: "Daily sync of all tracked players from Chess.com and Lichess"
+    cron: "15 04 * * *"          # 04:15 UTC daily
+    function: import-games
+    enabled: true
+    timeout: "2h"
+    
+    # Dynamic player list from database
+    targets:
+      - query: |
+          SELECT DISTINCT 
+            sc.username,
+            sc.site,
+            CASE 
+              WHEN sc.site = 'Chess.com' THEN 'chess.com'
+              WHEN sc.site = 'Lichess' THEN 'lichess'
+              ELSE sc.site
+            END as normalized_site
+          FROM sync_cursor sc
+          WHERE sc.total_imported > 0
+            AND sc.updated_at > now() - interval '30 days'
+          ORDER BY sc.updated_at DESC
+        
+    # Job configuration for each player
+    config:
+      limit: 50
+      resumable: true
+      batch_size: 5  # Process 5 players at a time
+      delay_between_batches: "30s"
+      
+    # Error handling
+    on_error:
+      action: "continue"  # continue | stop | retry
+      max_failures_per_batch: 2
+      
+    # Notifications
+    notifications:
+      on_start: true
+      on_complete: true
+      on_error: true
+      
+  # Weekly deep sync for top players
+  - name: weekly-top-players
+    description: "Weekly comprehensive sync for top-rated players"
+    cron: "0 02 * * 0"           # 02:00 UTC every Sunday
+    function: import-games
+    enabled: true
+    timeout: "4h"
+    
+    # Static list of top players
+    targets:
+      - username: "hikaru"
+        site: "chess.com"
+      - username: "magnuscarlsen" 
+        site: "chess.com"
+      - username: "penguingm1"
+        site: "lichess"
+      - username: "DrNykterstein"
+        site: "lichess"
+      - username: "nihalsarin"
+        site: "chess.com"
+      - username: "lachesisq"
+        site: "chess.com"
+      - username: "chessbrah"
+        site: "chess.com"
+      - username: "gothamchess"
+        site: "chess.com"
+        
+    config:
+      limit: 100
+      resumable: true
+      batch_size: 3
+      delay_between_batches: "60s"
+      
+  # Hourly sync for high-priority players
+  - name: hourly-priority-sync
+    description: "Hourly sync for players with recent suspicious activity"
+    cron: "0 * * * *"            # Every hour at minute 0
+    function: import-games
+    enabled: false               # Disabled by default
+    timeout: "30m"
+    
+    targets:
+      - query: |
+          SELECT DISTINCT 
+            sc.username,
+            CASE 
+              WHEN sc.site = 'Chess.com' THEN 'chess.com'
+              WHEN sc.site = 'Lichess' THEN 'lichess'
+              ELSE sc.site
+            END as normalized_site
+          FROM sync_cursor sc
+          JOIN players p ON p.hash LIKE '%' || sc.username || '%'
+          JOIN games g ON g.player_id = p.id
+          JOIN scores s ON s.game_id = g.id
+          WHERE s.suspicion_level >= 80
+            AND s.created_at > now() - interval '24 hours'
+          ORDER BY s.suspicion_level DESC
+          LIMIT 10
+          
+    config:
+      limit: 25
+      resumable: true
+      batch_size: 2
+      delay_between_batches: "15s"
+
+# Maintenance jobs
+maintenance:
+  # Clean up old sync cursors
+  - name: cleanup-old-cursors
+    description: "Remove old sync cursors for inactive players"
+    cron: "30 03 * * 0"          # 03:30 UTC every Sunday
+    function: cleanup-old-sync-cursors
+    enabled: true
+    config:
+      days_old: 90
+      
+  # Database maintenance
+  - name: database-maintenance
+    description: "Optimize database performance"
+    cron: "0 05 * * 0"           # 05:00 UTC every Sunday
+    function: database-maintenance
+    enabled: true
+    config:
+      vacuum_analyze: true
+      reindex: false
+      
+# Monitoring and alerting
+monitoring:
+  health_check:
+    endpoint: "/api/scheduler/health"
+    interval: "5m"
+    
+  metrics:
+    - name: "jobs_completed"
+      type: "counter"
+    - name: "jobs_failed" 
+      type: "counter"
+    - name: "games_imported"
+      type: "counter"
+    - name: "job_duration"
+      type: "histogram"
+      
+  alerts:
+    - name: "job_failure_rate"
+      condition: "jobs_failed / jobs_completed > 0.1"
+      severity: "warning"
+      
+    - name: "job_timeout"
+      condition: "job_duration > timeout"
+      severity: "critical"
+      
+    - name: "no_games_imported"
+      condition: "games_imported == 0 for 24h"
+      severity: "warning"
+
+# Environment-specific overrides
+environments:
+  development:
+    settings:
+      max_concurrent_jobs: 1
+    jobs:
+      - name: nightly-sync
+        enabled: false
+      - name: weekly-top-players
+        cron: "*/15 * * * *"  # Every 15 minutes for testing
+        
+  staging:
+    settings:
+      max_concurrent_jobs: 2
+    jobs:
+      - name: nightly-sync
+        cron: "0 06 * * *"   # 06:00 UTC for staging
+        
+  production:
+    settings:
+      max_concurrent_jobs: 5
+    monitoring:
+      alerts:
+        - name: "critical_failure"
+          condition: "jobs_failed > 5 in 1h"
+          severity: "critical"
+          action: "page_oncall"
