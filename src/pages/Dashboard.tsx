@@ -3,6 +3,7 @@ import { TrendingUp, Users, AlertTriangle, Activity, Eye, Clock } from 'lucide-r
 import KPICard from '../components/KPICard';
 import SuspicionChart from '../components/SuspicionChart';
 import RecentGamesTable from '../components/RecentGamesTable';
+import RealtimeScoreStream from '../components/RealtimeScoreStream';
 import { mockDashboardData, type Game } from '../data/mockData';
 
 const Dashboard: React.FC = () => {
@@ -87,6 +88,9 @@ const Dashboard: React.FC = () => {
           sparklineData={generateSparklineData()}
         />
       </div>
+
+      {/* Real-time Score Stream */}
+      <RealtimeScoreStream />
 
       {/* Suspicion Rate Chart */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
