@@ -1,10 +1,22 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock } from 'lucide-react';
-import { Game } from '../data/mockData';
+
+interface LiveGame {
+  id: string;
+  playerHash: string;
+  site: string;
+  suspicionLevel: number;
+  elo: number;
+  matchEnginePct: number;
+  deltaCp: number;
+  mlProb: number;
+  timestamp: Date;
+  result: string;
+}
 
 interface RecentGamesTableProps {
-  games: Game[];
+  games: LiveGame[];
 }
 
 const RecentGamesTable: React.FC<RecentGamesTableProps> = ({ games }) => {
@@ -96,6 +108,14 @@ const RecentGamesTable: React.FC<RecentGamesTableProps> = ({ games }) => {
     setPgnModalOpen(false);
     setSelectedPgn('');
   };
+
+  if (!games || games.length === 0) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-gray-500">No games available</p>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -221,7 +241,7 @@ const RecentGamesTable: React.FC<RecentGamesTableProps> = ({ games }) => {
           <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
             <div className="mt-3">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900">Full PGN</h3>
+                <h3 className="text-lg font-medium text-gray-900">Sample PGN</h3>
                 <button
                   onClick={closePgnModal}
                   className="text-gray-400 hover:text-gray-600"

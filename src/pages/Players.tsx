@@ -1,33 +1,133 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Eye, TrendingUp, TrendingDown, Activity, AlertTriangle, CheckCircle } from 'lucide-react';
-import { mockPlayerData, type Player } from '../data/mockData';
+import { Search, Eye, TrendingUp, TrendingDown, Activity, AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 
-// Generate additional mock players for the list
-const generateMockPlayers = (count: number): Player[] => {
-  const additionalPlayers = [];
-  for (let i = 0; i < count; i++) {
-    additionalPlayers.push({
-      hash: `hash${i}${Math.random().toString(36).substring(2, 15)}`,
-      elo: 1200 + Math.floor(Math.random() * 800),
-      gamesCount: Math.floor(Math.random() * 100) + 10,
-      avgSuspicion: Math.floor(Math.random() * 100),
-      avgEngineMatch: 60 + Math.random() * 35,
-      mlProb: Math.random(),
-      perfectRunStreak: Math.floor(Math.random() * 20),
-      lastSeen: `${Math.floor(Math.random() * 24)} hours ago`,
-      accuracyHeatmap: [],
-      recentGames: []
-    });
-  }
-  return additionalPlayers;
-};
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+interface LivePlayer {
+  id: string;
+  hash: string;
+  elo: number;
+  created_at: string;
+  games_count: number;
+  avg_suspicion: number;
+  avg_engine_match: number;
+  avg_ml_prob: number;
+  last_seen: string;
+}
 
 const Players: React.FC = () => {
-  const [players] = useState<Player[]>([...mockPlayerData, ...generateMockPlayers(20)]);
+  const [players, setPlayers] = useState<LivePlayer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [suspicionFilter, setSuspicionFilter] = useState('all');
   const [sortBy, setSortBy] = useState('suspicion');
+
+  const fetchPlayers = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch players with aggregated statistics
+      const { data, error } = await supabase
+        .from('players')
+        .select(`
+          *,
+          games!inner (
+            id,
+            scores!inner (
+              suspicion_level,
+              match_engine_pct,
+              ml_prob,
+              created_at
+            )
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      // Transform and aggregate the data
+      const transformedPlayers: LivePlayer[] = data.map(player => {
+        const allScores = player.games.flatMap(game => game.scores);
+        const gamesCount = player.games.length;
+        const avgSuspicion = allScores.length > 0 
+          ? allScores.reduce((sum, score) => sum + score.suspicion_level, 0) / allScores.length 
+          : 0;
+        const avgEngineMatch = allScores.length > 0 
+          ? allScores.reduce((sum, score) => sum + (score.match_engine_pct || 0), 0) / allScores.length 
+          : 0;
+        const avgMlProb = allScores.length > 0 
+          ? allScores.reduce((sum, score) => sum + (score.ml_prob || 0), 0) / allScores.length 
+          : 0;
+        
+        // Find most recent activity
+        const mostRecentScore = allScores.sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        )[0];
+        
+        const lastSeen = mostRecentScore 
+          ? formatTimeAgo(mostRecentScore.created_at)
+          : formatTimeAgo(player.created_at);
+
+        return {
+          id: player.id,
+          hash: player.hash,
+          elo: player.elo || 0,
+          created_at: player.created_at,
+          games_count: gamesCount,
+          avg_suspicion: Math.round(avgSuspicion),
+          avg_engine_match: avgEngineMatch,
+          avg_ml_prob: avgMlProb,
+          last_seen: lastSeen
+        };
+      });
+
+      setPlayers(transformedPlayers);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diff = now.getTime() - date.getTime();
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const days = Math.floor(hours / 24);
+    
+    if (days > 0) return `${days} days ago`;
+    if (hours > 0) return `${hours} hours ago`;
+    return 'Recently';
+  };
+
+  useEffect(() => {
+    fetchPlayers();
+
+    // Set up realtime subscription
+    const channel = supabase
+      .channel('players-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => {
+        fetchPlayers();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, () => {
+        fetchPlayers();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const getSuspicionBadge = (level: number) => {
     if (level >= 70) {
@@ -64,33 +164,69 @@ const Players: React.FC = () => {
     .filter(player => {
       const matchesSearch = player.hash.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesSuspicion = suspicionFilter === 'all' || 
-        (suspicionFilter === 'high' && player.avgSuspicion >= 70) ||
-        (suspicionFilter === 'medium' && player.avgSuspicion >= 40 && player.avgSuspicion < 70) ||
-        (suspicionFilter === 'low' && player.avgSuspicion < 40);
+        (suspicionFilter === 'high' && player.avg_suspicion >= 70) ||
+        (suspicionFilter === 'medium' && player.avg_suspicion >= 40 && player.avg_suspicion < 70) ||
+        (suspicionFilter === 'low' && player.avg_suspicion < 40);
       
       return matchesSearch && matchesSuspicion;
     })
     .sort((a, b) => {
       switch (sortBy) {
         case 'suspicion':
-          return b.avgSuspicion - a.avgSuspicion;
+          return b.avg_suspicion - a.avg_suspicion;
         case 'elo':
           return b.elo - a.elo;
         case 'games':
-          return b.gamesCount - a.gamesCount;
+          return b.games_count - a.games_count;
         case 'mlProb':
-          return b.mlProb - a.mlProb;
+          return b.avg_ml_prob - a.avg_ml_prob;
         default:
           return 0;
       }
     });
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Players</h1>
+          <p className="mt-2 text-gray-600">Monitor and analyze player behavior patterns</p>
+        </div>
+        
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 mx-auto text-gray-400 animate-spin mb-2" />
+            <p className="text-gray-500">Loading players from database...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Players</h1>
+          <p className="mt-2 text-gray-600">Monitor and analyze player behavior patterns</p>
+        </div>
+        
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-5 h-5 text-red-500" />
+            <span className="text-red-700">Error loading players: {error}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold text-gray-900">Players</h1>
-        <p className="mt-2 text-gray-600">Monitor and analyze player behavior patterns</p>
+        <p className="mt-2 text-gray-600">Monitor and analyze player behavior patterns ({players.length} total players)</p>
       </div>
 
       {/* Filters and Search */}
@@ -138,26 +274,26 @@ const Players: React.FC = () => {
       {/* Players Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredAndSortedPlayers.map((player) => {
-          const SuspicionIcon = getSuspicionIcon(player.avgSuspicion);
+          const SuspicionIcon = getSuspicionIcon(player.avg_suspicion);
           return (
-            <div key={player.hash} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
+            <div key={player.id} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                   <h3 className="text-sm font-medium text-gray-900 font-mono truncate">
                     {player.hash.substring(0, 16)}...
                   </h3>
-                  <p className="text-xs text-gray-500 mt-1">Last seen: {player.lastSeen}</p>
+                  <p className="text-xs text-gray-500 mt-1">Last seen: {player.last_seen}</p>
                 </div>
                 <div className="flex items-center space-x-1">
                   <SuspicionIcon className={`w-4 h-4 ${
-                    player.avgSuspicion >= 70 ? 'text-red-500' :
-                    player.avgSuspicion >= 40 ? 'text-orange-500' : 'text-green-500'
+                    player.avg_suspicion >= 70 ? 'text-red-500' :
+                    player.avg_suspicion >= 40 ? 'text-orange-500' : 'text-green-500'
                   }`} />
                   <span className={`text-sm font-bold ${
-                    player.avgSuspicion >= 70 ? 'text-red-600' :
-                    player.avgSuspicion >= 40 ? 'text-orange-600' : 'text-green-600'
+                    player.avg_suspicion >= 70 ? 'text-red-600' :
+                    player.avg_suspicion >= 40 ? 'text-orange-600' : 'text-green-600'
                   }`}>
-                    {player.avgSuspicion}%
+                    {player.avg_suspicion}%
                   </span>
                 </div>
               </div>
@@ -170,19 +306,19 @@ const Players: React.FC = () => {
                   </div>
                   <div>
                     <span className="text-gray-500">Games</span>
-                    <p className="font-semibold text-gray-900">{player.gamesCount}</p>
+                    <p className="font-semibold text-gray-900">{player.games_count}</p>
                   </div>
                 </div>
 
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">Engine Match</span>
-                    <span className="font-medium">{player.avgEngineMatch.toFixed(1)}%</span>
+                    <span className="font-medium">{player.avg_engine_match.toFixed(1)}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-1.5">
                     <div 
                       className="bg-blue-500 h-1.5 rounded-full" 
-                      style={{ width: `${player.avgEngineMatch}%` }}
+                      style={{ width: `${Math.min(player.avg_engine_match, 100)}%` }}
                     />
                   </div>
                 </div>
@@ -190,18 +326,18 @@ const Players: React.FC = () => {
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-500">ML Probability</span>
-                    <span className="font-medium">{(player.mlProb * 100).toFixed(1)}%</span>
+                    <span className="font-medium">{(player.avg_ml_prob * 100).toFixed(1)}%</span>
                   </div>
                   <div className="w-full bg-gray-200 rounded-full h-1.5">
                     <div 
                       className="bg-orange-500 h-1.5 rounded-full" 
-                      style={{ width: `${player.mlProb * 100}%` }}
+                      style={{ width: `${player.avg_ml_prob * 100}%` }}
                     />
                   </div>
                 </div>
 
                 <div className="pt-2">
-                  {getSuspicionBadge(player.avgSuspicion)}
+                  {getSuspicionBadge(player.avg_suspicion)}
                 </div>
               </div>
 
