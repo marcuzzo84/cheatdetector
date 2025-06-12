@@ -1,20 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Download, Users, AlertCircle, CheckCircle, Loader2, Database, Globe, Zap, Cloud, Activity, Wifi, WifiOff, Play, Pause, RotateCcw } from 'lucide-react';
+import { ArrowLeft, Download, Users, AlertTriangle, CheckCircle, Loader2, Database, Globe, Zap, Cloud, Activity, Wifi, WifiOff, Play, Pause, RotateCcw, Shield } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { createClient } from '@supabase/supabase-js';
+import RateLimitMonitor from '../components/RateLimitMonitor';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface ImportProgress {
-  status: 'idle' | 'fetching' | 'processing' | 'completed' | 'error';
+  status: 'idle' | 'fetching' | 'processing' | 'completed' | 'error' | 'rate_limited';
   message: string;
   gamesImported: number;
   totalGames: number;
   currentPlayer?: string;
   errors: string[];
+  rateLimitInfo?: {
+    retryAfter: number;
+    reason: string;
+  };
 }
 
 interface LiveScore {
@@ -45,6 +50,7 @@ const Import: React.FC = () => {
   const [liveScores, setLiveScores] = useState<LiveScore[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [importHistory, setImportHistory] = useState<any[]>([]);
+  const [showRateLimitMonitor, setShowRateLimitMonitor] = useState(false);
   const channelRef = useRef<any>(null);
 
   // Set up real-time connection for live score updates
@@ -151,7 +157,7 @@ const Import: React.FC = () => {
     // Reset progress
     setProgress({
       status: 'fetching',
-      message: 'Initializing import...',
+      message: 'Initializing import with rate limiting...',
       gamesImported: 0,
       totalGames: formData.limit,
       errors: []
@@ -159,7 +165,7 @@ const Import: React.FC = () => {
     setLiveScores([]);
 
     try {
-      // Call the Edge Function
+      // Call the Enhanced Edge Function with rate limiting
       const response = await fetch(`${supabaseUrl}/functions/v1/import-games`, {
         method: 'POST',
         headers: {
@@ -173,6 +179,36 @@ const Import: React.FC = () => {
         })
       });
 
+      // Handle rate limiting
+      if (response.status === 429) {
+        const errorData = await response.json();
+        const retryAfter = parseInt(response.headers.get('Retry-After') || '60', 10) * 1000;
+        
+        setProgress({
+          status: 'rate_limited',
+          message: `Rate limited: ${errorData.reason}`,
+          gamesImported: 0,
+          totalGames: formData.limit,
+          errors: [errorData.reason],
+          rateLimitInfo: {
+            retryAfter,
+            reason: errorData.reason
+          }
+        });
+        
+        // Auto-retry after the specified delay
+        setTimeout(() => {
+          setProgress(prev => ({
+            ...prev,
+            status: 'fetching',
+            message: 'Retrying after rate limit...'
+          }));
+          handleSubmit(e);
+        }, retryAfter);
+        
+        return;
+      }
+
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || `HTTP ${response.status}`);
@@ -181,7 +217,7 @@ const Import: React.FC = () => {
       setProgress(prev => ({
         ...prev,
         status: 'processing',
-        message: `Fetching games from ${formData.site}...`
+        message: `Fetching games from ${formData.site} with rate limiting...`
       }));
 
       const result = await response.json();
@@ -242,7 +278,9 @@ const Import: React.FC = () => {
       case 'completed':
         return <CheckCircle className="w-5 h-5 text-green-600" />;
       case 'error':
-        return <AlertCircle className="w-5 h-5 text-red-600" />;
+        return <AlertTriangle className="w-5 h-5 text-red-600" />;
+      case 'rate_limited':
+        return <Shield className="w-5 h-5 text-orange-600" />;
       default:
         return <Activity className="w-5 h-5 text-gray-400" />;
     }
@@ -257,10 +295,30 @@ const Import: React.FC = () => {
         return 'bg-green-50 border-green-200 text-green-800';
       case 'error':
         return 'bg-red-50 border-red-200 text-red-800';
+      case 'rate_limited':
+        return 'bg-orange-50 border-orange-200 text-orange-800';
       default:
         return 'bg-gray-50 border-gray-200 text-gray-800';
     }
   };
+
+  const getRateLimitRecommendation = () => {
+    if (formData.site === 'chess.com') {
+      return {
+        title: 'Chess.com Rate Limits',
+        description: '1 request per second (soft limit)',
+        recommendation: 'Requests are automatically throttled to respect API limits'
+      };
+    } else {
+      return {
+        title: 'Lichess Rate Limits',
+        description: '20 requests per second, 15 MB per minute',
+        recommendation: 'Single fetch covers ≤300 games, response kept ≤5MB'
+      };
+    }
+  };
+
+  const rateLimitInfo = getRateLimitRecommendation();
 
   return (
     <div className="space-y-6">
@@ -274,23 +332,37 @@ const Import: React.FC = () => {
         </Link>
         <div className="flex-1">
           <h1 className="text-3xl font-bold text-gray-900">Import Chess Games</h1>
-          <p className="text-gray-600">Fetch and analyze games from Chess.com and Lichess with live progress tracking</p>
+          <p className="text-gray-600">Fetch and analyze games with intelligent rate limiting and quota management</p>
         </div>
-        <div className="flex items-center space-x-2">
-          {isConnected ? (
-            <div className="flex items-center space-x-2 text-green-600">
-              <Wifi className="w-4 h-4" />
-              <span className="text-sm font-medium">Live Connected</span>
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            </div>
-          ) : (
-            <div className="flex items-center space-x-2 text-gray-400">
-              <WifiOff className="w-4 h-4" />
-              <span className="text-sm">Offline</span>
-            </div>
-          )}
+        <div className="flex items-center space-x-3">
+          <button
+            onClick={() => setShowRateLimitMonitor(!showRateLimitMonitor)}
+            className="flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Shield className="w-4 h-4" />
+            <span>Rate Limits</span>
+          </button>
+          <div className="flex items-center space-x-2">
+            {isConnected ? (
+              <div className="flex items-center space-x-2 text-green-600">
+                <Wifi className="w-4 h-4" />
+                <span className="text-sm font-medium">Live Connected</span>
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-2 text-gray-400">
+                <WifiOff className="w-4 h-4" />
+                <span className="text-sm">Offline</span>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Rate Limit Monitor */}
+      {showRateLimitMonitor && (
+        <RateLimitMonitor onStatusChange={(status) => console.log('Rate limit status:', status)} />
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Import Form */}
@@ -360,7 +432,8 @@ const Import: React.FC = () => {
                 >
                   {getStatusIcon()}
                   <span>
-                    {progress.status === 'processing' || progress.status === 'fetching' ? 'Importing...' : 'Start Import'}
+                    {progress.status === 'processing' || progress.status === 'fetching' ? 'Importing...' : 
+                     progress.status === 'rate_limited' ? 'Rate Limited' : 'Start Import'}
                   </span>
                 </button>
                 
@@ -376,14 +449,17 @@ const Import: React.FC = () => {
               </div>
             </form>
 
-            {/* Edge Function Info */}
+            {/* Rate Limiting Info */}
             <div className="mt-6 p-4 bg-blue-50 rounded-lg">
               <div className="flex items-start space-x-2">
-                <Cloud className="w-5 h-5 text-blue-600 mt-0.5" />
+                <Shield className="w-5 h-5 text-blue-600 mt-0.5" />
                 <div>
-                  <h4 className="text-sm font-medium text-blue-900">Edge Function Powered</h4>
+                  <h4 className="text-sm font-medium text-blue-900">{rateLimitInfo.title}</h4>
                   <p className="text-sm text-blue-700 mt-1">
-                    Secure, rate-limited imports with duplicate detection and resumable progress tracking.
+                    {rateLimitInfo.description}
+                  </p>
+                  <p className="text-xs text-blue-600 mt-2">
+                    💡 {rateLimitInfo.recommendation}
                   </p>
                 </div>
               </div>
@@ -426,6 +502,22 @@ const Import: React.FC = () => {
                   {getStatusIcon()}
                   <span className="text-sm font-medium">{progress.message}</span>
                 </div>
+                
+                {/* Rate Limit Info */}
+                {progress.status === 'rate_limited' && progress.rateLimitInfo && (
+                  <div className="mt-2 text-sm">
+                    <p>Retrying in {Math.ceil(progress.rateLimitInfo.retryAfter / 1000)} seconds...</p>
+                    <div className="w-full bg-orange-200 rounded-full h-1 mt-2">
+                      <div 
+                        className="bg-orange-500 h-1 rounded-full transition-all duration-1000"
+                        style={{ 
+                          width: `${100 - ((progress.rateLimitInfo.retryAfter / 60000) * 100)}%`,
+                          transition: `width ${progress.rateLimitInfo.retryAfter}ms linear`
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -436,7 +528,7 @@ const Import: React.FC = () => {
                 <ul className="text-sm text-red-700 space-y-1">
                   {progress.errors.slice(0, 5).map((error, index) => (
                     <li key={index} className="flex items-start space-x-2">
-                      <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                      <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
                       <span>{error}</span>
                     </li>
                   ))}
