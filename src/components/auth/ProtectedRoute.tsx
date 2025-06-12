@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Loader2, Shield, Wifi, WifiOff } from 'lucide-react';
+import { Loader2, Shield, Wifi, WifiOff, X, ArrowLeft } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
 }
 
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, loading, forceSignOut } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [progress, setProgress] = useState(0);
   const [showProgress, setShowProgress] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   useEffect(() => {
     if (loading) {
@@ -59,10 +61,46 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     }
   }, [loading, user, showProgress]);
 
+  const handleCancelConnection = async () => {
+    try {
+      // Force sign out and clear all auth state
+      await forceSignOut();
+      // Navigate to sign in page
+      navigate('/signin', { replace: true });
+    } catch (error) {
+      console.error('Error canceling connection:', error);
+      // Force navigation even if sign out fails
+      window.location.href = '/signin';
+    }
+  };
+
+  const handleStopConnection = () => {
+    setShowCancelConfirm(true);
+  };
+
   if (loading || showProgress) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
         <div className="text-center max-w-md w-full px-6">
+          {/* Cancel Button */}
+          <div className="flex justify-between items-center mb-6">
+            <button
+              onClick={handleStopConnection}
+              className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-gray-800 hover:bg-white/50 rounded-lg transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              <span className="text-sm">Back to Login</span>
+            </button>
+            
+            <button
+              onClick={handleStopConnection}
+              className="p-2 text-gray-400 hover:text-gray-600 hover:bg-white/50 rounded-lg transition-colors"
+              title="Cancel connection"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
           {/* Logo */}
           <div className="flex justify-center mb-6">
             <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center shadow-lg">
@@ -160,7 +198,59 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
               </p>
             </div>
           )}
+
+          {/* Cancel Connection Button */}
+          <div className="mt-6">
+            <button
+              onClick={handleStopConnection}
+              className="w-full px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
+            >
+              Cancel Connection
+            </button>
+          </div>
         </div>
+
+        {/* Cancel Confirmation Modal */}
+        {showCancelConfirm && (
+          <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+            <div className="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+              <div className="mt-3">
+                <div className="flex items-center justify-center mb-4">
+                  <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center">
+                    <X className="w-6 h-6 text-orange-600" />
+                  </div>
+                </div>
+                
+                <h3 className="text-lg font-medium text-gray-900 text-center mb-2">
+                  Cancel Connection?
+                </h3>
+                
+                <p className="text-sm text-gray-600 text-center mb-6">
+                  This will stop the authentication process and return you to the login page. 
+                  You'll need to sign in again to access the dashboard.
+                </p>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setShowCancelConfirm(false)}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
+                  >
+                    Continue Loading
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowCancelConfirm(false);
+                      handleCancelConnection();
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
+                  >
+                    Cancel & Go Back
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
