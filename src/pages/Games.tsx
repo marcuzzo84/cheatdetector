@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Filter, Search, Calendar } from 'lucide-react';
-import { mockDashboardData, type Game } from '../data/mockData';
+import { type Game } from '../data/mockData';
 
 const Games: React.FC = () => {
-  const [games] = useState<Game[]>(mockDashboardData.recentGames);
+  const [games] = useState<Game[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [siteFilter, setSiteFilter] = useState('all');
   const [suspicionFilter, setSuspicionFilter] = useState('all');
@@ -203,94 +203,106 @@ const Games: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredGames.map((game) => (
-                  <tr 
-                    key={game.id} 
-                    className="hover:bg-gray-50 transition-colors cursor-pointer"
-                    onClick={() => openGameModal(game)}
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatTime(game.timestamp)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      {getSiteBadge(game.site)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {game.elo}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <Link 
-                        to={`/players/${game.playerHash}`}
-                        className="text-sm font-medium text-blue-600 hover:text-blue-800 font-mono"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {game.playerHash.substring(0, 8)}...
-                      </Link>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {game.matchEnginePct.toFixed(0)}%
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {game.mlProb.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center space-x-2">
-                        <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-bold ${
-                          game.suspicionLevel >= 70 ? 'bg-red-500 text-white' :
-                          game.suspicionLevel >= 40 ? 'bg-orange-500 text-white' : 'bg-green-500 text-white'
-                        }`}>
-                          {game.suspicionLevel}
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex flex-col space-y-1">
-                        <div className="flex space-x-2">
-                          <Link
-                            to={`/players/${game.playerHash}`}
-                            className="text-blue-600 hover:text-blue-800 inline-flex items-center"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <Eye className="w-4 h-4 mr-1" />
-                            View
-                          </Link>
-                          <button 
-                            className="text-green-600 hover:text-green-800 inline-flex items-center"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openPgnModal();
-                            }}
-                          >
-                            <Eye className="w-4 h-4 mr-1" />
-                            PGN
-                          </button>
-                        </div>
-                        <div className="flex space-x-2">
-                          <a
-                            href={getChessComUrl(game.playerHash)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 inline-flex items-center text-xs"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <ExternalLink className="w-3 h-3 mr-1" />
-                            Chess.com
-                          </a>
-                          <a
-                            href={getLichessUrl(game.playerHash)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-purple-600 hover:text-purple-800 inline-flex items-center text-xs"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <ExternalLink className="w-3 h-3 mr-1" />
-                            Lichess
-                          </a>
-                        </div>
+                {filteredGames.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                      <div className="flex flex-col items-center">
+                        <Search className="w-12 h-12 text-gray-300 mb-4" />
+                        <p className="text-lg font-medium">No games found</p>
+                        <p className="text-sm">Games will appear here once data is loaded from the database</p>
                       </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredGames.map((game) => (
+                    <tr 
+                      key={game.id} 
+                      className="hover:bg-gray-50 transition-colors cursor-pointer"
+                      onClick={() => openGameModal(game)}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {formatTime(game.timestamp)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {getSiteBadge(game.site)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {game.elo}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <Link 
+                          to={`/players/${game.playerHash}`}
+                          className="text-sm font-medium text-blue-600 hover:text-blue-800 font-mono"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {game.playerHash.substring(0, 8)}...
+                        </Link>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {game.matchEnginePct.toFixed(0)}%
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {game.mlProb.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center space-x-2">
+                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-bold ${
+                            game.suspicionLevel >= 70 ? 'bg-red-500 text-white' :
+                            game.suspicionLevel >= 40 ? 'bg-orange-500 text-white' : 'bg-green-500 text-white'
+                          }`}>
+                            {game.suspicionLevel}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <div className="flex flex-col space-y-1">
+                          <div className="flex space-x-2">
+                            <Link
+                              to={`/players/${game.playerHash}`}
+                              className="text-blue-600 hover:text-blue-800 inline-flex items-center"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Eye className="w-4 h-4 mr-1" />
+                              View
+                            </Link>
+                            <button 
+                              className="text-green-600 hover:text-green-800 inline-flex items-center"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                openPgnModal();
+                              }}
+                            >
+                              <Eye className="w-4 h-4 mr-1" />
+                              PGN
+                            </button>
+                          </div>
+                          <div className="flex space-x-2">
+                            <a
+                              href={getChessComUrl(game.playerHash)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 inline-flex items-center text-xs"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <ExternalLink className="w-3 h-3 mr-1" />
+                              Chess.com
+                            </a>
+                            <a
+                              href={getLichessUrl(game.playerHash)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-purple-600 hover:text-purple-800 inline-flex items-center text-xs"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <ExternalLink className="w-3 h-3 mr-1" />
+                              Lichess
+                            </a>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
