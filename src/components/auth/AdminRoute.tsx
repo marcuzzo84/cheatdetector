@@ -213,3 +213,5 @@ const AdminRoute: React.FC<AdminRouteProps> = ({ children }) => {
 
   return <>{children}</>;
 };
+
+export default AdminRoute
