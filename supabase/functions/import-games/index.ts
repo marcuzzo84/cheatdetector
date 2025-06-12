@@ -60,6 +60,7 @@ interface LichessGame {
   }
   moves: string
   pgn?: string
+  winner?: string
 }
 
 interface ProcessedGame {
@@ -180,7 +181,7 @@ serve(async (req) => {
     if (site === 'chess.com') {
       games = await fetchChessComGames(username, limit, supabaseClient)
     } else {
-      games = await fetchLichessGames(username, limit, supabaseClient)
+      games = await fetchLichess(username, limit, supabaseClient)
     }
 
     console.log(`Fetched ${games.length} games for processing`)
@@ -331,94 +332,65 @@ async function fetchChessComGames(username: string, limit: number, supabase: any
   }
 }
 
-async function fetchLichessGames(username: string, limit: number, supabase: any): Promise<ProcessedGame[]> {
-  const LICHESS_BASE_URL = 'https://lichess.org/api'
+// Updated Lichess helper function following your specification
+async function fetchLichess(user: string, n: number, supabase?: any): Promise<ProcessedGame[]> {
+  const url = `https://lichess.org/api/games/user/${user}?max=${n}&pgnInJson=true`
+  const r = await fetch(url, { 
+    headers: { 
+      accept: 'application/x-ndjson',
+      'User-Agent': 'FairPlay-Scout/1.0'
+    } 
+  })
   
-  try {
-    // Get sync cursor for resumable imports
-    const { data: syncCursor } = await supabase
-      .from('sync_cursor')
-      .select('*')
-      .eq('site', 'Lichess')
-      .eq('username', username)
-      .single()
-
-    let sinceParam = ''
-    if (syncCursor) {
-      const sinceMs = new Date(syncCursor.last_ts).getTime()
-      sinceParam = `&since=${sinceMs}`
-    }
-
-    const url = `${LICHESS_BASE_URL}/games/user/${username}?max=${limit}&moves=true&opening=true&sort=dateDesc${sinceParam}`
+  if (!r.ok) throw Error('Lichess fetch failed')
+  
+  const lines = (await r.text()).trim().split('\n')
+  const playerHash = generatePlayerHash(user, 'Lichess')
+  
+  return lines.map(l => {
+    const j = JSON.parse(l)
     
-    const response = await fetch(url, {
-      headers: {
-        'Accept': 'application/x-ndjson',
-        'User-Agent': 'FairPlay-Scout/1.0'
-      }
-    })
-
-    if (!response.ok) {
-      throw new Error(`Lichess API error: ${response.status}`)
-    }
-
-    const responseText = await response.text()
-    const games: ProcessedGame[] = []
-    const playerHash = generatePlayerHash(username, 'Lichess')
+    // Determine if this player was white or black
+    const isWhite = j.players.white.user?.name.toLowerCase() === user.toLowerCase()
+    const playerData = isWhite ? j.players.white : j.players.black
     
-    const lines = responseText.split('\n').filter(line => line.trim())
-    
-    for (const line of lines) {
-      try {
-        const game: LichessGame = JSON.parse(line)
-        
-        // Check if game already exists
-        const { data: exists } = await supabase.rpc('game_exists', {
-          p_site: 'Lichess',
-          p_ext_uid: game.id
-        })
-        if (exists) continue
-
-        const isWhite = game.players.white.user?.name.toLowerCase() === username.toLowerCase()
-        const playerData = isWhite ? game.players.white : game.players.black
-        
-        // Determine result
-        let result = 'Draw'
-        if (game.status === 'mate' || game.status === 'resign' || game.status === 'timeout') {
-          if (playerData.ratingDiff && playerData.ratingDiff > 0) {
-            result = 'Win'
-          } else if (playerData.ratingDiff && playerData.ratingDiff < 0) {
-            result = 'Loss'
-          }
-        }
-
-        games.push({
-          playerHash,
-          site: 'Lichess',
-          extUid: game.id,
-          pgn: game.pgn || generatePgnFromMoves(game.moves, game),
-          date: new Date(game.createdAt).toISOString().split('T')[0],
-          result,
-          elo: playerData.rating,
-          timeControl: formatLichessTimeControl(game.speed, game.perf),
-          opening: game.opening?.name,
-          timestamp: Math.floor(game.createdAt / 1000)
-        })
-      } catch (error) {
-        console.error('Error parsing game line:', error)
-        continue
-      }
+    // Determine result based on winner field or rating diff
+    let result = j.winner ?? 'draw'
+    if (result === 'draw') {
+      result = 'Draw'
+    } else if ((result === 'white' && isWhite) || (result === 'black' && !isWhite)) {
+      result = 'Win'
+    } else {
+      result = 'Loss'
     }
-
-    return games
-  } catch (error) {
-    console.error(`Error fetching Lichess games:`, error)
-    throw error
-  }
+    
+    return {
+      playerHash,
+      site: 'Lichess' as const,
+      extUid: j.id,
+      pgn: j.pgn || generatePgnFromMoves(j.moves || '', j),
+      date: new Date(j.createdAt).toISOString().split('T')[0],
+      result,
+      elo: playerData.rating,
+      timeControl: formatLichessTimeControl(j.speed, j.perf),
+      opening: j.opening?.name,
+      timestamp: Math.floor(j.createdAt / 1000)
+    }
+  })
 }
 
 async function importGame(game: ProcessedGame, supabase: any): Promise<boolean> {
   try {
+    // Check if game already exists (double-check)
+    const { data: exists } = await supabase.rpc('game_exists', {
+      p_site: game.site,
+      p_ext_uid: game.extUid
+    })
+    if (exists) {
+      console.log(`Game ${game.extUid} already exists, skipping`)
+      return false
+    }
+
     // Ensure player exists
     const { data: existingPlayer } = await supabase
       .from('players')
@@ -441,7 +413,7 @@ async function importGame(game: ProcessedGame, supabase: any): Promise<boolean> 
       if (playerError) throw playerError
       playerId = newPlayer.id
     } else {
-      // Update player's ELO
+      // Update player's ELO if this is more recent
       await supabase
         .from('players')
         .update({ elo: game.elo })
@@ -455,7 +427,7 @@ async function importGame(game: ProcessedGame, supabase: any): Promise<boolean> 
         player_id: playerId,
         site: game.site,
         ext_uid: game.extUid,
-        pgn_url: null,
+        pgn_url: `supabase://pgn/${game.extUid}.pgn`, // Following your specification
         date: game.date,
         result: game.result
       })
@@ -564,9 +536,10 @@ function generatePgnFromMoves(moves: string, game: LichessGame): string {
   const blackElo = game.players.black.rating
   
   let result = '1/2-1/2'
-  if (game.status === 'mate' || game.status === 'resign' || game.status === 'timeout') {
-    const moveCount = moves.split(' ').length
-    result = moveCount % 2 === 0 ? '0-1' : '1-0'
+  if (game.winner === 'white') {
+    result = '1-0'
+  } else if (game.winner === 'black') {
+    result = '0-1'
   }
 
   return `[Event "Rated ${game.perf} game"]
