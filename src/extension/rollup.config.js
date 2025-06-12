@@ -2,6 +2,7 @@ import { nodeResolve } from '@rollup/plugin-node-resolve';
 import commonjs from '@rollup/plugin-commonjs';
 import replace from '@rollup/plugin-replace';
 import copy from 'rollup-plugin-copy';
+import path from 'path';
 
 export default {
   input: {
@@ -10,7 +11,7 @@ export default {
     'ui/popup': 'src/ui/popup.js'
   },
   output: {
-    dir: 'dist',
+    dir: path.resolve('../../dist'),
     format: 'es',
     entryFileNames: '[name].js',
     chunkFileNames: 'shared/[name]-[hash].js'
@@ -30,14 +31,14 @@ export default {
     copy({
       targets: [
         // Copy manifest and static files
-        { src: 'src/manifest.json', dest: 'dist' },
-        { src: 'src/ui/popup.html', dest: 'dist/ui' },
-        { src: 'src/ui/popup.css', dest: 'dist/ui' },
+        { src: 'src/manifest.json', dest: path.resolve('../../dist') },
+        { src: 'src/ui/popup.html', dest: path.resolve('../../dist/ui') },
+        { src: 'src/ui/popup.css', dest: path.resolve('../../dist/ui') },
         
         // Create icons directory and placeholder icons
         { 
           src: 'src/ui/icons/*', 
-          dest: 'dist/ui/icons',
+          dest: path.resolve('../../dist/ui/icons'),
           // If icons don't exist, we'll create them in the build process
         }
       ],
