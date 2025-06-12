@@ -18,14 +18,18 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     if (loading) {
       setShowProgress(true);
       setConnectionStatus('connecting');
+      setProgress(0); // Reset progress when loading starts
       
       // Simulate authentication progress
       const progressInterval = setInterval(() => {
         setProgress(prev => {
+          // Cap at 90% until actual auth completes
           if (prev >= 90) {
-            return prev; // Stop at 90% until actual auth completes
+            return 90;
           }
-          return prev + Math.random() * 15; // Random increments
+          // Increment by random amount but ensure we don't exceed 90
+          const increment = Math.random() * 10;
+          return Math.min(prev + increment, 90);
         });
       }, 200);
 
@@ -40,17 +44,20 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       };
     } else {
       // Complete the progress bar when loading finishes
-      setProgress(100);
-      setConnectionStatus(user ? 'connected' : 'disconnected');
-      
-      // Hide progress bar after a short delay
-      const hideTimeout = setTimeout(() => {
-        setShowProgress(false);
-      }, 500);
-      
-      return () => clearTimeout(hideTimeout);
+      if (showProgress) {
+        setProgress(100);
+        setConnectionStatus(user ? 'connected' : 'disconnected');
+        
+        // Hide progress bar after completion animation
+        const hideTimeout = setTimeout(() => {
+          setShowProgress(false);
+          setProgress(0); // Reset for next time
+        }, 800);
+        
+        return () => clearTimeout(hideTimeout);
+      }
     }
-  }, [loading, user]);
+  }, [loading, user, showProgress]);
 
   if (loading || showProgress) {
     return (
@@ -75,12 +82,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
             <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
               <div 
                 className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300 ease-out"
-                style={{ width: `${Math.min(progress, 100)}%` }}
+                style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }}
               />
             </div>
             <div className="flex justify-between text-sm text-gray-500">
               <span>Authenticating...</span>
-              <span>{Math.round(progress)}%</span>
+              <span>{Math.min(Math.max(Math.round(progress), 0), 100)}%</span>
             </div>
           </div>
 
@@ -166,4 +173,4 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   return <>{children}</>;
 };
 
-export default ProtectedRoute
+export default ProtectedRoute;
