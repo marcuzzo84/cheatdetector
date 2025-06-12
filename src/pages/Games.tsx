@@ -158,7 +158,7 @@ const Games: React.FC = () => {
                 <option value="all">All Levels</option>
                 <option value="high">High Risk (70%+)</option>
                 <option value="medium">Suspicious (40-69%)</option>
-                <option value="low">Clean (<40%)</option>
+                <option value="low">{'Clean (<40%)'}</option>
               </select>
             </div>
           </div>
