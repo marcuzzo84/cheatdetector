@@ -1,16 +1,105 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Filter, Search, Calendar } from 'lucide-react';
-import { type Game } from '../data/mockData';
+import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Filter, Search, Calendar, Loader2, Download } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
+import DataImportModal from '../components/DataImportModal';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
+
+interface LiveGame {
+  id: string;
+  player_hash: string;
+  site: string;
+  date: string;
+  result: string;
+  elo: number;
+  suspicion_level: number;
+  match_engine_pct: number;
+  ml_prob: number;
+  created_at: string;
+}
 
 const Games: React.FC = () => {
-  const [games] = useState<Game[]>([]);
+  const [games, setGames] = useState<LiveGame[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [siteFilter, setSiteFilter] = useState('all');
   const [suspicionFilter, setSuspicionFilter] = useState('all');
-  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const [selectedGame, setSelectedGame] = useState<LiveGame | null>(null);
   const [pgnModalOpen, setPgnModalOpen] = useState(false);
   const [selectedPgn, setSelectedPgn] = useState('');
+  const [showImportModal, setShowImportModal] = useState(false);
+
+  const fetchGames = async () => {
+    try {
+      setLoading(true);
+      
+      const { data, error } = await supabase
+        .from('scores')
+        .select(`
+          *,
+          games!inner (
+            id,
+            site,
+            date,
+            result,
+            players!inner (
+              hash,
+              elo
+            )
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (error) {
+        setError(error.message);
+        return;
+      }
+
+      const transformedGames: LiveGame[] = data.map(score => ({
+        id: score.id,
+        player_hash: score.games.players.hash,
+        site: score.games.site,
+        date: score.games.date,
+        result: score.games.result,
+        elo: score.games.players.elo,
+        suspicion_level: score.suspicion_level,
+        match_engine_pct: score.match_engine_pct,
+        ml_prob: score.ml_prob,
+        created_at: score.created_at
+      }));
+
+      setGames(transformedGames);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchGames();
+
+    // Set up realtime subscription
+    const channel = supabase
+      .channel('games-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, () => {
+        fetchGames();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => {
+        fetchGames();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   const getSuspicionBadge = (level: number) => {
     if (level >= 70) {
@@ -43,13 +132,13 @@ const Games: React.FC = () => {
       <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${
         isChessCom ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
       }`}>
-        {isChessCom ? 'Chess.com' : 'Li'}
+        {isChessCom ? 'Chess.com' : 'Lichess'}
       </span>
     );
   };
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleDateString('en-GB', {
+  const formatTime = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-GB', {
       day: '2-digit',
       month: '2-digit',
       year: '2-digit'
@@ -96,17 +185,17 @@ const Games: React.FC = () => {
   };
 
   const filteredGames = games.filter(game => {
-    const matchesSearch = game.playerHash.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesSearch = game.player_hash.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesSite = siteFilter === 'all' || game.site === siteFilter;
     const matchesSuspicion = suspicionFilter === 'all' || 
-      (suspicionFilter === 'high' && game.suspicionLevel >= 70) ||
-      (suspicionFilter === 'medium' && game.suspicionLevel >= 40 && game.suspicionLevel < 70) ||
-      (suspicionFilter === 'low' && game.suspicionLevel < 40);
+      (suspicionFilter === 'high' && game.suspicion_level >= 70) ||
+      (suspicionFilter === 'medium' && game.suspicion_level >= 40 && game.suspicion_level < 70) ||
+      (suspicionFilter === 'low' && game.suspicion_level < 40);
     
     return matchesSearch && matchesSite && matchesSuspicion;
   });
 
-  const openGameModal = (game: Game) => {
+  const openGameModal = (game: LiveGame) => {
     setSelectedGame(game);
   };
 
@@ -114,199 +203,289 @@ const Games: React.FC = () => {
     setSelectedGame(null);
   };
 
+  const handleImportSuccess = () => {
+    fetchGames();
+    setShowImportModal(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Games</h1>
+            <p className="mt-2 text-gray-600">Comprehensive game analysis with detailed metrics</p>
+          </div>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>Import Games</span>
+          </button>
+        </div>
+        
+        <div className="flex items-center justify-center py-12">
+          <div className="text-center">
+            <Loader2 className="w-8 h-8 mx-auto text-gray-400 animate-spin mb-2" />
+            <p className="text-gray-500">Loading games from database...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Games</h1>
+            <p className="mt-2 text-gray-600">Comprehensive game analysis with detailed metrics</p>
+          </div>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>Import Games</span>
+          </button>
+        </div>
+        
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-5 h-5 text-red-500" />
+            <span className="text-red-700">Error loading games: {error}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Games</h1>
-          <p className="mt-2 text-gray-600">Comprehensive game analysis with detailed metrics</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Games</h1>
+            <p className="mt-2 text-gray-600">Comprehensive game analysis with detailed metrics</p>
+          </div>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>Import Games</span>
+          </button>
         </div>
+
+        {/* Empty State */}
+        {games.length === 0 && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
+            <div className="flex flex-col items-center">
+              <Search className="w-12 h-12 text-blue-400 mb-4" />
+              <h3 className="text-lg font-medium text-blue-900 mb-2">No games found</h3>
+              <p className="text-blue-700 mb-4">Import chess games from Chess.com and Lichess to get started</p>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                <span>Import Game Data</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Filters */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                <input
-                  type="text"
-                  placeholder="Search by player hash..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
+        {games.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <input
+                    type="text"
+                    placeholder="Search by player hash..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              
+              <div className="flex gap-2">
+                <select
+                  value={siteFilter}
+                  onChange={(e) => setSiteFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Sites</option>
+                  <option value="Chess.com">Chess.com</option>
+                  <option value="Lichess">Lichess</option>
+                </select>
+                
+                <select
+                  value={suspicionFilter}
+                  onChange={(e) => setSuspicionFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Levels</option>
+                  <option value="high">High Risk (70%+)</option>
+                  <option value="medium">Suspicious (40-69%)</option>
+                  <option value="low">Clean (&lt;40%)</option>
+                </select>
               </div>
             </div>
-            
-            <div className="flex gap-2">
-              <select
-                value={siteFilter}
-                onChange={(e) => setSiteFilter(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Sites</option>
-                <option value="Chess.com">Chess.com</option>
-                <option value="Lichess">Lichess</option>
-              </select>
-              
-              <select
-                value={suspicionFilter}
-                onChange={(e) => setSuspicionFilter(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Levels</option>
-                <option value="high">High Risk (70%+)</option>
-                <option value="medium">Suspicious (40-69%)</option>
-                <option value="low">{'Clean (<40%)'}</option>
-              </select>
-            </div>
           </div>
-        </div>
+        )}
 
         {/* Games Table */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Game Analysis Results ({filteredGames.length} games)
-            </h3>
-          </div>
-          
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Site
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Elo
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Link
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Match %
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    ML-prob
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Level
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredGames.length === 0 ? (
+        {games.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Game Analysis Results ({filteredGames.length} games)
+              </h3>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
                   <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                      <div className="flex flex-col items-center">
-                        <Search className="w-12 h-12 text-gray-300 mb-4" />
-                        <p className="text-lg font-medium">No games found</p>
-                        <p className="text-sm">Games will appear here once data is loaded from the database</p>
-                      </div>
-                    </td>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Site
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Elo
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Player
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Match %
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      ML-prob
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Level
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Actions
+                    </th>
                   </tr>
-                ) : (
-                  filteredGames.map((game) => (
-                    <tr 
-                      key={game.id} 
-                      className="hover:bg-gray-50 transition-colors cursor-pointer"
-                      onClick={() => openGameModal(game)}
-                    >
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {formatTime(game.timestamp)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        {getSiteBadge(game.site)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {game.elo}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <Link 
-                          to={`/players/${game.playerHash}`}
-                          className="text-sm font-medium text-blue-600 hover:text-blue-800 font-mono"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {game.playerHash.substring(0, 8)}...
-                        </Link>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {game.matchEnginePct.toFixed(0)}%
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {game.mlProb.toFixed(2)}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center space-x-2">
-                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-bold ${
-                            game.suspicionLevel >= 70 ? 'bg-red-500 text-white' :
-                            game.suspicionLevel >= 40 ? 'bg-orange-500 text-white' : 'bg-green-500 text-white'
-                          }`}>
-                            {game.suspicionLevel}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex flex-col space-y-1">
-                          <div className="flex space-x-2">
-                            <Link
-                              to={`/players/${game.playerHash}`}
-                              className="text-blue-600 hover:text-blue-800 inline-flex items-center"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <Eye className="w-4 h-4 mr-1" />
-                              View
-                            </Link>
-                            <button 
-                              className="text-green-600 hover:text-green-800 inline-flex items-center"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                openPgnModal();
-                              }}
-                            >
-                              <Eye className="w-4 h-4 mr-1" />
-                              PGN
-                            </button>
-                          </div>
-                          <div className="flex space-x-2">
-                            <a
-                              href={getChessComUrl(game.playerHash)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-800 inline-flex items-center text-xs"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <ExternalLink className="w-3 h-3 mr-1" />
-                              Chess.com
-                            </a>
-                            <a
-                              href={getLichessUrl(game.playerHash)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-purple-600 hover:text-purple-800 inline-flex items-center text-xs"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <ExternalLink className="w-3 h-3 mr-1" />
-                              Lichess
-                            </a>
-                          </div>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {filteredGames.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                        <div className="flex flex-col items-center">
+                          <Search className="w-12 h-12 text-gray-300 mb-4" />
+                          <p className="text-lg font-medium">No games match your filters</p>
+                          <p className="text-sm">Try adjusting your search criteria</p>
                         </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    filteredGames.map((game) => (
+                      <tr 
+                        key={game.id} 
+                        className="hover:bg-gray-50 transition-colors cursor-pointer"
+                        onClick={() => openGameModal(game)}
+                      >
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {formatTime(game.date)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {getSiteBadge(game.site)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {game.elo}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <Link 
+                            to={`/players/${game.player_hash}`}
+                            className="text-sm font-medium text-blue-600 hover:text-blue-800 font-mono"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {game.player_hash.substring(0, 8)}...
+                          </Link>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {game.match_engine_pct?.toFixed(0)}%
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {game.ml_prob?.toFixed(2)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center space-x-2">
+                            <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-bold ${
+                              game.suspicion_level >= 70 ? 'bg-red-500 text-white' :
+                              game.suspicion_level >= 40 ? 'bg-orange-500 text-white' : 'bg-green-500 text-white'
+                            }`}>
+                              {game.suspicion_level}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                          <div className="flex flex-col space-y-1">
+                            <div className="flex space-x-2">
+                              <Link
+                                to={`/players/${game.player_hash}`}
+                                className="text-blue-600 hover:text-blue-800 inline-flex items-center"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Eye className="w-4 h-4 mr-1" />
+                                View
+                              </Link>
+                              <button 
+                                className="text-green-600 hover:text-green-800 inline-flex items-center"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openPgnModal();
+                                }}
+                              >
+                                <Eye className="w-4 h-4 mr-1" />
+                                PGN
+                              </button>
+                            </div>
+                            <div className="flex space-x-2">
+                              <a
+                                href={getChessComUrl(game.player_hash)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 inline-flex items-center text-xs"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <ExternalLink className="w-3 h-3 mr-1" />
+                                Chess.com
+                              </a>
+                              <a
+                                href={getLichessUrl(game.player_hash)}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-purple-600 hover:text-purple-800 inline-flex items-center text-xs"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <ExternalLink className="w-3 h-3 mr-1" />
+                                Lichess
+                              </a>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Game Detail Modal */}
         {selectedGame && (
@@ -332,7 +511,7 @@ const Games: React.FC = () => {
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-gray-600">Player Hash:</span>
-                          <span className="font-mono">{selectedGame.playerHash.substring(0, 16)}...</span>
+                          <span className="font-mono">{selectedGame.player_hash.substring(0, 16)}...</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-600">Site:</span>
@@ -344,7 +523,11 @@ const Games: React.FC = () => {
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-600">Date:</span>
-                          <span>{formatTime(selectedGame.timestamp)}</span>
+                          <span>{formatTime(selectedGame.date)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Result:</span>
+                          <span>{selectedGame.result}</span>
                         </div>
                       </div>
                     </div>
@@ -354,19 +537,19 @@ const Games: React.FC = () => {
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
                           <span className="text-gray-600">Engine Match:</span>
-                          <span>{selectedGame.matchEnginePct.toFixed(1)}%</span>
+                          <span>{selectedGame.match_engine_pct?.toFixed(1)}%</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-600">ML Probability:</span>
-                          <span>{selectedGame.mlProb.toFixed(3)}</span>
+                          <span>{selectedGame.ml_prob?.toFixed(3)}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-gray-600">Suspicion Level:</span>
                           <span className={`font-bold ${
-                            selectedGame.suspicionLevel >= 70 ? 'text-red-600' :
-                            selectedGame.suspicionLevel >= 40 ? 'text-orange-600' : 'text-green-600'
+                            selectedGame.suspicion_level >= 70 ? 'text-red-600' :
+                            selectedGame.suspicion_level >= 40 ? 'text-orange-600' : 'text-green-600'
                           }`}>
-                            {selectedGame.suspicionLevel}%
+                            {selectedGame.suspicion_level}%
                           </span>
                         </div>
                       </div>
@@ -377,7 +560,7 @@ const Games: React.FC = () => {
                       <h4 className="font-medium text-gray-900 mb-2">External Links</h4>
                       <div className="flex flex-col space-y-2">
                         <a
-                          href={getChessComUrl(selectedGame.playerHash)}
+                          href={getChessComUrl(selectedGame.player_hash)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center space-x-2 text-blue-600 hover:text-blue-800 text-sm"
@@ -386,7 +569,7 @@ const Games: React.FC = () => {
                           <span>View on Chess.com</span>
                         </a>
                         <a
-                          href={getLichessUrl(selectedGame.playerHash)}
+                          href={getLichessUrl(selectedGame.player_hash)}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="flex items-center space-x-2 text-purple-600 hover:text-purple-800 text-sm"
@@ -399,7 +582,7 @@ const Games: React.FC = () => {
                           className="flex items-center space-x-2 text-green-600 hover:text-green-800 text-sm"
                         >
                           <Eye className="w-4 h-4" />
-                          <span>View Full PGN</span>
+                          <span>View Sample PGN</span>
                         </button>
                       </div>
                     </div>
@@ -438,7 +621,7 @@ const Games: React.FC = () => {
                         <pre className="whitespace-pre-wrap">
                           [Event "Rated Blitz game"]
                           [Site "{selectedGame.site}"]
-                          [Date "{formatTime(selectedGame.timestamp)}"]
+                          [Date "{formatTime(selectedGame.date)}"]
                           [White "Player"]
                           [Black "Opponent"]
                           [Result "{selectedGame.result}"]
@@ -458,7 +641,7 @@ const Games: React.FC = () => {
                     Close
                   </button>
                   <Link
-                    to={`/players/${selectedGame.playerHash}`}
+                    to={`/players/${selectedGame.player_hash}`}
                     className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
                   >
                     View Player Profile
@@ -476,7 +659,7 @@ const Games: React.FC = () => {
           <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
             <div className="mt-3">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-medium text-gray-900">Full PGN</h3>
+                <h3 className="text-lg font-medium text-gray-900">Sample PGN</h3>
                 <button
                   onClick={closePgnModal}
                   className="text-gray-400 hover:text-gray-600"
@@ -509,6 +692,13 @@ const Games: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Data Import Modal */}
+      <DataImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onSuccess={handleImportSuccess}
+      />
     </>
   );
 };
