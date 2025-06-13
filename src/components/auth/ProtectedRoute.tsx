@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { Loader2, Shield, Wifi, WifiOff, X, ArrowLeft } from 'lucide-react';
+import { Loader2, Shield, Wifi, WifiOff, X, ArrowLeft, AlertTriangle } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -13,17 +13,23 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const navigate = useNavigate();
   const [progress, setProgress] = useState(0);
   const [showProgress, setShowProgress] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'timeout'>('connecting');
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [timeoutReached, setTimeoutReached] = useState(false);
 
   useEffect(() => {
+    let progressInterval: NodeJS.Timeout;
+    let statusTimeout: NodeJS.Timeout;
+    let maxTimeout: NodeJS.Timeout;
+
     if (loading) {
       setShowProgress(true);
       setConnectionStatus('connecting');
-      setProgress(0); // Reset progress when loading starts
+      setProgress(0);
+      setTimeoutReached(false);
       
       // Simulate authentication progress
-      const progressInterval = setInterval(() => {
+      progressInterval = setInterval(() => {
         setProgress(prev => {
           // Cap at 90% until actual auth completes
           if (prev >= 90) {
@@ -36,13 +42,21 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
       }, 200);
 
       // Simulate connection status updates
-      const statusTimeout = setTimeout(() => {
+      statusTimeout = setTimeout(() => {
         setConnectionStatus('connected');
       }, 1000);
+
+      // Maximum timeout - if loading takes too long, show timeout state
+      maxTimeout = setTimeout(() => {
+        setTimeoutReached(true);
+        setConnectionStatus('timeout');
+        setProgress(100);
+      }, 8000); // 8 second max timeout
 
       return () => {
         clearInterval(progressInterval);
         clearTimeout(statusTimeout);
+        clearTimeout(maxTimeout);
       };
     } else {
       // Complete the progress bar when loading finishes
@@ -53,7 +67,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
         // Hide progress bar after completion animation
         const hideTimeout = setTimeout(() => {
           setShowProgress(false);
-          setProgress(0); // Reset for next time
+          setProgress(0);
         }, 800);
         
         return () => clearTimeout(hideTimeout);
@@ -63,14 +77,20 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   const handleCancelConnection = () => {
     console.log('🚫 User cancelled connection');
-    // Cancel the auth process
     cancelAuth();
-    // Navigate to sign in page immediately
     navigate('/signin', { replace: true });
   };
 
   const handleStopConnection = () => {
     setShowCancelConfirm(true);
+  };
+
+  const handleTimeoutRetry = () => {
+    setTimeoutReached(false);
+    setConnectionStatus('connecting');
+    setProgress(0);
+    // Force a page reload to restart the auth process
+    window.location.reload();
   };
 
   if (loading || showProgress) {
@@ -105,21 +125,33 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
           {/* Loading Animation */}
           <div className="mb-6">
-            <Loader2 className="w-8 h-8 mx-auto text-blue-600 animate-spin mb-4" />
-            <h2 className="text-2xl font-semibold text-gray-900 mb-2">Loading FairPlay-Scout</h2>
-            <p className="text-gray-600 mb-4">Verifying your authentication...</p>
+            {timeoutReached ? (
+              <AlertTriangle className="w-8 h-8 mx-auto text-orange-600 mb-4" />
+            ) : (
+              <Loader2 className="w-8 h-8 mx-auto text-blue-600 animate-spin mb-4" />
+            )}
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+              {timeoutReached ? 'Connection Timeout' : 'Loading FairPlay-Scout'}
+            </h2>
+            <p className="text-gray-600 mb-4">
+              {timeoutReached 
+                ? 'Authentication is taking longer than expected...' 
+                : 'Verifying your authentication...'}
+            </p>
           </div>
 
           {/* Progress Bar */}
           <div className="mb-6">
             <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
               <div 
-                className="bg-gradient-to-r from-blue-500 to-purple-500 h-2 rounded-full transition-all duration-300 ease-out"
+                className={`h-2 rounded-full transition-all duration-300 ease-out ${
+                  timeoutReached ? 'bg-orange-500' : 'bg-gradient-to-r from-blue-500 to-purple-500'
+                }`}
                 style={{ width: `${Math.min(Math.max(progress, 0), 100)}%` }}
               />
             </div>
             <div className="flex justify-between text-sm text-gray-500">
-              <span>Authenticating...</span>
+              <span>{timeoutReached ? 'Timeout reached' : 'Authenticating...'}</span>
               <span>{Math.min(Math.max(Math.round(progress), 0), 100)}%</span>
             </div>
           </div>
@@ -144,10 +176,16 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
                 <span className="text-sm text-red-600 font-medium">Connection failed</span>
               </>
             )}
+            {connectionStatus === 'timeout' && (
+              <>
+                <AlertTriangle className="w-4 h-4 text-orange-500" />
+                <span className="text-sm text-orange-600 font-medium">Connection timeout</span>
+              </>
+            )}
           </div>
 
           {/* Status Steps */}
-          <div className="space-y-2 text-left">
+          <div className="space-y-2 text-left mb-6">
             <div className={`flex items-center space-x-3 p-2 rounded-lg transition-colors ${
               progress > 20 ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-500'
             }`}>
@@ -185,24 +223,51 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
             </div>
           </div>
 
-          {/* Timeout Warning */}
-          {progress > 0 && progress < 100 && (
-            <div className="mt-6 p-3 bg-blue-50 rounded-lg">
-              <p className="text-xs text-blue-600">
-                This may take a moment on first load while we verify your credentials and establish a secure connection.
-              </p>
+          {/* Timeout Actions */}
+          {timeoutReached ? (
+            <div className="space-y-3">
+              <div className="p-3 bg-orange-50 rounded-lg">
+                <p className="text-sm text-orange-700">
+                  The authentication process is taking longer than expected. This might be due to network issues or server load.
+                </p>
+              </div>
+              <div className="flex space-x-3">
+                <button
+                  onClick={handleTimeoutRetry}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                >
+                  Retry Connection
+                </button>
+                <button
+                  onClick={handleCancelConnection}
+                  className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors text-sm font-medium"
+                >
+                  Go to Login
+                </button>
+              </div>
             </div>
-          )}
+          ) : (
+            <>
+              {/* Timeout Warning */}
+              {progress > 0 && progress < 100 && (
+                <div className="p-3 bg-blue-50 rounded-lg mb-6">
+                  <p className="text-xs text-blue-600">
+                    This may take a moment on first load while we verify your credentials and establish a secure connection.
+                  </p>
+                </div>
+              )}
 
-          {/* Cancel Connection Button */}
-          <div className="mt-6">
-            <button
-              onClick={handleStopConnection}
-              className="w-full px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
-            >
-              Cancel Connection
-            </button>
-          </div>
+              {/* Cancel Connection Button */}
+              <div>
+                <button
+                  onClick={handleStopConnection}
+                  className="w-full px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors text-sm font-medium"
+                >
+                  Cancel Connection
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Cancel Confirmation Modal */}
@@ -258,4 +323,4 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   return <>{children}</>;
 };
 
-export default ProtectedRoute
+export default ProtectedRoute;

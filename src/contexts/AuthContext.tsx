@@ -46,6 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [authCancelled, setAuthCancelled] = useState(false);
+  const [initializationTimeout, setInitializationTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const fetchUserProfile = async (userId: string) => {
     try {
@@ -80,6 +81,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSession(null);
     setLoading(false);
     setAuthCancelled(false);
+    if (initializationTimeout) {
+      clearTimeout(initializationTimeout);
+      setInitializationTimeout(null);
+    }
   };
 
   const cancelAuth = () => {
@@ -91,6 +96,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let mounted = true;
     
+    // Set a timeout to prevent infinite loading
+    const timeout = setTimeout(() => {
+      if (mounted && loading && !authCancelled) {
+        console.warn('⚠️ Auth initialization timeout, proceeding without authentication');
+        setLoading(false);
+      }
+    }, 10000); // 10 second timeout
+    
+    setInitializationTimeout(timeout);
+    
     const initializeAuth = async () => {
       try {
         // Don't proceed if auth was cancelled
@@ -99,8 +114,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
-        // Get initial session
-        const { data: { session }, error } = await supabase.auth.getSession();
+        console.log('🔐 Initializing authentication...');
+
+        // Get initial session with timeout
+        const sessionPromise = supabase.auth.getSession();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Session fetch timeout')), 5000)
+        );
+
+        const { data: { session }, error } = await Promise.race([
+          sessionPromise,
+          timeoutPromise
+        ]) as any;
         
         if (!mounted || authCancelled) return;
         
@@ -110,22 +135,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
 
+        console.log('📋 Session retrieved:', session ? 'Authenticated' : 'Not authenticated');
+
         setSession(session);
         setUser(session?.user ?? null);
         
         if (session?.user && !authCancelled) {
-          const profile = await fetchUserProfile(session.user.id);
-          if (mounted && !authCancelled) {
-            setUserProfile(profile);
+          console.log('👤 Fetching user profile...');
+          try {
+            const profile = await fetchUserProfile(session.user.id);
+            if (mounted && !authCancelled) {
+              setUserProfile(profile);
+              console.log('✅ Profile loaded:', profile?.role || 'No role');
+            }
+          } catch (profileError) {
+            console.warn('⚠️ Profile fetch failed, continuing without profile:', profileError);
+            // Continue without profile rather than blocking
           }
         }
         
         if (mounted && !authCancelled) {
           setLoading(false);
+          console.log('✅ Auth initialization complete');
         }
       } catch (error) {
-        console.error('Error initializing auth:', error);
-        if (mounted) {
+        console.error('❌ Error initializing auth:', error);
+        if (mounted && !authCancelled) {
           setLoading(false);
         }
       }
@@ -140,15 +175,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!mounted || authCancelled) return;
       
-      console.log('Auth state changed:', event);
+      console.log('🔄 Auth state changed:', event);
       
       setSession(session);
       setUser(session?.user ?? null);
       
       if (session?.user && !authCancelled) {
-        const profile = await fetchUserProfile(session.user.id);
-        if (mounted && !authCancelled) {
-          setUserProfile(profile);
+        try {
+          const profile = await fetchUserProfile(session.user.id);
+          if (mounted && !authCancelled) {
+            setUserProfile(profile);
+          }
+        } catch (error) {
+          console.warn('Profile fetch failed during auth change:', error);
         }
       } else {
         setUserProfile(null);
@@ -162,23 +201,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       mounted = false;
       subscription.unsubscribe();
+      if (timeout) {
+        clearTimeout(timeout);
+      }
     };
   }, [authCancelled]);
 
   const signIn = async (email: string, password: string) => {
     try {
       setAuthCancelled(false); // Reset cancel state
+      setLoading(true);
+      
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
 
       if (error) {
+        setLoading(false);
         return { error: error.message };
       }
 
       return {};
     } catch (error) {
+      setLoading(false);
       return { error: 'An unexpected error occurred' };
     }
   };
