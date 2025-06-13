@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Filter, Search, Calendar, Loader2, Download } from 'lucide-react';
+import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Filter, Search, Calendar, Loader2, Download, Database } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import DataImportModal from '../components/DataImportModal';
 
@@ -36,6 +36,28 @@ const Games: React.FC = () => {
   const fetchGames = async () => {
     try {
       setLoading(true);
+      setError(null);
+      
+      // First check if we have any games data
+      const { data: gamesCount, error: countError } = await supabase
+        .from('games')
+        .select('id', { count: 'exact', head: true });
+
+      if (countError) {
+        console.error('Error checking games count:', countError);
+        setError(countError.message);
+        setGames([]);
+        setLoading(false);
+        return;
+      }
+
+      // If no games exist, return empty array
+      if (!gamesCount || gamesCount.length === 0) {
+        console.log('No games data found');
+        setGames([]);
+        setLoading(false);
+        return;
+      }
       
       const { data, error } = await supabase
         .from('scores')
@@ -56,7 +78,17 @@ const Games: React.FC = () => {
         .limit(100);
 
       if (error) {
+        console.error('Error fetching games:', error);
         setError(error.message);
+        setGames([]);
+        setLoading(false);
+        return;
+      }
+
+      if (!data || data.length === 0) {
+        console.log('No games with scores found');
+        setGames([]);
+        setLoading(false);
         return;
       }
 
@@ -76,7 +108,9 @@ const Games: React.FC = () => {
       setGames(transformedGames);
       setError(null);
     } catch (err) {
+      console.error('Error in fetchGames:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
+      setGames([]);
     } finally {
       setLoading(false);
     }
@@ -258,6 +292,12 @@ const Games: React.FC = () => {
             <span className="text-red-700">Error loading games: {error}</span>
           </div>
         </div>
+
+        <DataImportModal
+          isOpen={showImportModal}
+          onClose={() => setShowImportModal(false)}
+          onSuccess={handleImportSuccess}
+        />
       </div>
     );
   }
@@ -284,7 +324,7 @@ const Games: React.FC = () => {
         {games.length === 0 && (
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-8 text-center">
             <div className="flex flex-col items-center">
-              <Search className="w-12 h-12 text-blue-400 mb-4" />
+              <Database className="w-12 h-12 text-blue-400 mb-4" />
               <h3 className="text-lg font-medium text-blue-900 mb-2">No games found</h3>
               <p className="text-blue-700 mb-4">Import chess games from Chess.com and Lichess to get started</p>
               <button
@@ -334,7 +374,7 @@ const Games: React.FC = () => {
                   <option value="all">All Levels</option>
                   <option value="high">High Risk (70%+)</option>
                   <option value="medium">Suspicious (40-69%)</option>
-                  <option value="low">Clean (&lt;40%)</option>
+                  <option value="low">Clean (<40%)</option>
                 </select>
               </div>
             </div>
