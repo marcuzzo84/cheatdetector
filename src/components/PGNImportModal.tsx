@@ -1,7 +1,8 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload, FileText, AlertTriangle, CheckCircle, Loader2, Eye, Database, Zap } from 'lucide-react';
+import { X, Upload, FileText, AlertTriangle, CheckCircle, Loader2, Eye, Database, Zap, Cloud } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { useAuth } from '../contexts/AuthContext';
+import FileUploadComponent from './FileUploadComponent';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -27,9 +28,7 @@ interface ParsedGame {
 
 const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user } = useAuth();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [dragActive, setDragActive] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [activeTab, setActiveTab] = useState<'upload' | 'paste'>('upload');
   const [pgnContent, setPgnContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
@@ -39,51 +38,6 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
   const [showPreview, setShowPreview] = useState(false);
   const [playerUsername, setPlayerUsername] = useState('');
   const [selectedSite, setSelectedSite] = useState<'chess.com' | 'lichess'>('chess.com');
-
-  const handleDrag = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (e.type === 'dragenter' || e.type === 'dragover') {
-      setDragActive(true);
-    } else if (e.type === 'dragleave') {
-      setDragActive(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragActive(false);
-
-    const files = e.dataTransfer.files;
-    if (files && files[0]) {
-      handleFileSelect(files[0]);
-    }
-  };
-
-  const handleFileSelect = (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.pgn')) {
-      setError('Please select a valid PGN file (.pgn extension)');
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) { // 10MB limit
-      setError('File size must be less than 10MB');
-      return;
-    }
-
-    setSelectedFile(file);
-    setError('');
-
-    // Read file content
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target?.result as string;
-      setPgnContent(content);
-      parsePGNContent(content);
-    };
-    reader.readAsText(file);
-  };
 
   const parsePGNContent = (content: string) => {
     try {
@@ -153,10 +107,44 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
 
       setParsedGames(games);
       setShowPreview(true);
-      setSuccess(`Successfully parsed ${games.length} games from PGN file`);
+      setSuccess(`Successfully parsed ${games.length} games from PGN content`);
     } catch (err) {
-      setError('Failed to parse PGN file. Please check the file format.');
+      setError('Failed to parse PGN content. Please check the format.');
       console.error('PGN parsing error:', err);
+    }
+  };
+
+  const handleFileUploaded = async (uploadedFile: any) => {
+    try {
+      setProgress('Reading uploaded PGN file...');
+      
+      // Download the file content from Supabase Storage
+      const { data, error } = await supabase.storage
+        .from('chess-games')
+        .download(uploadedFile.file_path);
+
+      if (error) {
+        throw new Error(`Failed to read file: ${error.message}`);
+      }
+
+      // Convert blob to text
+      const text = await data.text();
+      setPgnContent(text);
+      parsePGNContent(text);
+      
+      // Update the file record to mark it as processed
+      await supabase
+        .from('uploaded_files')
+        .update({ 
+          processed: true,
+          games_count: parsedGames.length 
+        })
+        .eq('id', uploadedFile.id);
+
+      setProgress('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to process uploaded file');
+      setProgress('');
     }
   };
 
@@ -298,7 +286,6 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
   };
 
   const resetForm = () => {
-    setSelectedFile(null);
     setPgnContent('');
     setParsedGames([]);
     setShowPreview(false);
@@ -307,9 +294,6 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
     setSuccess('');
     setProgress('');
     setLoading(false);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
   };
 
   const handleClose = () => {
@@ -321,7 +305,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
 
   return (
     <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-10 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+      <div className="relative top-10 mx-auto p-5 border w-11/12 max-w-5xl shadow-lg rounded-md bg-white">
         <div className="mt-3">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center space-x-3">
@@ -338,6 +322,32 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
               className="text-gray-400 hover:text-gray-600 transition-colors"
             >
               <X className="w-6 h-6" />
+            </button>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6">
+            <button
+              onClick={() => setActiveTab('upload')}
+              className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'upload'
+                  ? 'bg-white text-green-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Cloud className="w-4 h-4" />
+              <span>Upload to Storage</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('paste')}
+              className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'paste'
+                  ? 'bg-white text-green-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Paste Content</span>
             </button>
           </div>
 
@@ -369,76 +379,68 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
             </div>
           )}
 
-          {!showPreview ? (
+          {/* Upload Tab */}
+          {activeTab === 'upload' && !showPreview && (
             <div className="space-y-6">
-              {/* File Upload Area */}
-              <div
-                className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                  dragActive 
-                    ? 'border-blue-500 bg-blue-50' 
-                    : 'border-gray-300 hover:border-gray-400'
-                }`}
-                onDragEnter={handleDrag}
-                onDragLeave={handleDrag}
-                onDragOver={handleDrag}
-                onDrop={handleDrop}
-              >
-                <div className="flex flex-col items-center space-y-4">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
-                    <Upload className="w-8 h-8 text-gray-400" />
+              <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-6">
+                <div className="flex items-start space-x-4">
+                  <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-blue-500 rounded-lg flex items-center justify-center">
+                    <Cloud className="w-6 h-6 text-white" />
                   </div>
-                  
-                  <div>
-                    <h4 className="text-lg font-medium text-gray-900 mb-2">
-                      {selectedFile ? selectedFile.name : 'Upload PGN File'}
-                    </h4>
-                    <p className="text-sm text-gray-600 mb-4">
-                      Drag and drop your PGN file here, or click to browse
+                  <div className="flex-1">
+                    <h4 className="text-lg font-medium text-gray-900 mb-2">Secure File Storage</h4>
+                    <p className="text-gray-600 mb-4">
+                      Upload your PGN files to secure cloud storage. Files are stored in your personal folder 
+                      and can be accessed anytime for re-analysis or sharing.
                     </p>
-                    
-                    <button
-                      onClick={() => fileInputRef.current?.click()}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                    >
-                      Choose File
-                    </button>
-                    
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pgn"
-                      onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])}
-                      className="hidden"
-                    />
-                  </div>
-                  
-                  <div className="text-xs text-gray-500">
-                    Supported: .pgn files up to 10MB
-                  </div>
-                </div>
-              </div>
-
-              {/* PGN Format Info */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-start space-x-3">
-                  <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
-                  <div>
-                    <h4 className="text-sm font-medium text-blue-900">PGN File Format</h4>
-                    <p className="text-sm text-blue-700 mt-1">
-                      PGN (Portable Game Notation) files contain chess game data including moves, player names, 
-                      ratings, and game results. You can download these from Chess.com or Lichess.
-                    </p>
-                    <div className="mt-2 text-xs text-blue-600">
-                      <p>• Chess.com: Go to your profile → Games → Download</p>
-                      <p>• Lichess: Go to your profile → Export games</p>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="flex items-center space-x-2">
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                        <span>Secure cloud storage</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                        <span>File management</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                        <span>Download anytime</span>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                        <span>50MB file limit</span>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Manual PGN Input */}
+              <FileUploadComponent
+                onFileUploaded={handleFileUploaded}
+                acceptedTypes={['.pgn']}
+                maxSize={50 * 1024 * 1024} // 50MB
+                allowMultiple={false}
+              />
+            </div>
+          )}
+
+          {/* Paste Tab */}
+          {activeTab === 'paste' && !showPreview && (
+            <div className="space-y-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start space-x-3">
+                  <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-medium text-blue-900">PGN Content</h4>
+                    <p className="text-sm text-blue-700 mt-1">
+                      Paste your PGN content directly. This method doesn't save files to storage but processes them immediately.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div className="space-y-4">
-                <h4 className="font-medium text-gray-900">Or paste PGN content directly:</h4>
+                <h4 className="font-medium text-gray-900">Paste PGN content:</h4>
                 <textarea
                   value={pgnContent}
                   onChange={(e) => {
@@ -451,11 +453,14 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                     }
                   }}
                   placeholder="Paste your PGN content here..."
-                  className="w-full h-32 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                  className="w-full h-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
                 />
               </div>
             </div>
-          ) : (
+          )}
+
+          {/* Preview and Import */}
+          {showPreview && (
             <div className="space-y-6">
               {/* Player Configuration */}
               <div className="bg-gray-50 rounded-lg p-4">
@@ -505,7 +510,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                       className="text-sm text-blue-600 hover:text-blue-800"
                     >
                       <Eye className="w-4 h-4 inline mr-1" />
-                      Edit File
+                      Edit Content
                     </button>
                   </div>
                 </div>
@@ -545,7 +550,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                   disabled={loading}
                   className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors disabled:opacity-50"
                 >
-                  Back to Upload
+                  Back to {activeTab === 'upload' ? 'Upload' : 'Paste'}
                 </button>
                 <button
                   onClick={handleImport}
@@ -563,29 +568,29 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
             </div>
           )}
 
-          {/* Feature Comparison */}
+          {/* Feature Info */}
           <div className="mt-6 p-4 bg-gray-50 rounded-lg">
             <div className="flex items-start space-x-3">
               <Zap className="w-5 h-5 text-blue-600 mt-0.5" />
               <div>
-                <h4 className="text-sm font-medium text-gray-900">PGN Import vs Live Import</h4>
+                <h4 className="text-sm font-medium text-gray-900">Storage vs Direct Processing</h4>
                 <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="font-medium text-green-700">✓ PGN Import (Standard)</p>
+                    <p className="font-medium text-green-700">✓ Upload to Storage</p>
                     <ul className="text-gray-600 mt-1 space-y-1">
-                      <li>• Upload your own game files</li>
-                      <li>• Works with any PGN file</li>
-                      <li>• No API rate limits</li>
-                      <li>• Basic analysis included</li>
+                      <li>• Files saved to your account</li>
+                      <li>• Download anytime</li>
+                      <li>• File management features</li>
+                      <li>• Secure cloud storage</li>
                     </ul>
                   </div>
                   <div>
-                    <p className="font-medium text-purple-700">⭐ Live Import (Premium)</p>
+                    <p className="font-medium text-blue-700">⚡ Direct Processing</p>
                     <ul className="text-gray-600 mt-1 space-y-1">
-                      <li>• Direct API integration</li>
-                      <li>• Real-time game fetching</li>
-                      <li>• Advanced analysis features</li>
-                      <li>• Automatic updates</li>
+                      <li>• Immediate processing</li>
+                      <li>• No storage used</li>
+                      <li>• Quick one-time analysis</li>
+                      <li>• Paste content directly</li>
                     </ul>
                   </div>
                 </div>
