@@ -102,7 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn('⚠️ Auth initialization timeout, proceeding without authentication');
         setLoading(false);
       }
-    }, 10000); // 10 second timeout
+    }, 15000); // Increased to 15 seconds to allow for session fetch
     
     setInitializationTimeout(timeout);
     
@@ -116,18 +116,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         console.log('🔐 Initializing authentication...');
 
-        // Get initial session with timeout
+        // Get initial session with increased timeout
         const sessionPromise = supabase.auth.getSession();
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Session fetch timeout')), 5000)
+          setTimeout(() => reject(new Error('Session fetch timeout')), 10000) // Increased to 10 seconds
         );
 
-        const { data: { session }, error } = await Promise.race([
-          sessionPromise,
-          timeoutPromise
-        ]) as any;
+        let sessionResult;
+        try {
+          sessionResult = await Promise.race([
+            sessionPromise,
+            timeoutPromise
+          ]) as any;
+        } catch (timeoutError) {
+          console.warn('⚠️ Session fetch timed out, proceeding without session');
+          if (mounted && !authCancelled) {
+            setLoading(false);
+          }
+          return;
+        }
         
         if (!mounted || authCancelled) return;
+        
+        const { data: { session }, error } = sessionResult;
         
         if (error) {
           console.error('Error getting session:', error);
