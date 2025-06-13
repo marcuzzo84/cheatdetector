@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, Download, Users, AlertCircle, CheckCircle, Loader2, Database, Globe, Zap, Cloud } from 'lucide-react';
+import { X, Download, Users, AlertTriangle, CheckCircle, Loader2, Database, Globe, Zap, Cloud, Crown, FileText } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import PGNImportModal from './PGNImportModal';
 
 interface DataImportModalProps {
   isOpen: boolean;
@@ -9,33 +10,26 @@ interface DataImportModalProps {
 }
 
 const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'single' | 'batch' | 'demo' | 'edge'>('edge');
+  const { user, userProfile, isAdmin } = useAuth();
+  const [activeTab, setActiveTab] = useState<'live' | 'pgn'>('pgn');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showPGNModal, setShowPGNModal] = useState(false);
 
-  // Single player import
-  const [singlePlayer, setSinglePlayer] = useState({
-    username: '',
-    site: 'both' as 'chess.com' | 'lichess' | 'both',
-    limit: 50
-  });
-
-  // Edge function import
-  const [edgeImport, setEdgeImport] = useState({
+  // Live import state (for premium users)
+  const [liveImport, setLiveImport] = useState({
     username: '',
     site: 'chess.com' as 'chess.com' | 'lichess',
     limit: 50
   });
 
-  // Batch import
-  const [batchPlayers, setBatchPlayers] = useState('');
-  const [batchLimit, setBatchLimit] = useState(25);
+  // Check if user has premium access (admin or specific role)
+  const hasPremiumAccess = isAdmin || userProfile?.role === 'premium';
 
-  const handleEdgeFunctionImport = async () => {
-    if (!edgeImport.username.trim()) {
+  const handleLiveImport = async () => {
+    if (!liveImport.username.trim()) {
       setError('Please enter a username');
       return;
     }
@@ -53,9 +47,9 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
           'Authorization': `Bearer ${user?.access_token || 'demo-token'}`,
         },
         body: JSON.stringify({
-          site: edgeImport.site,
-          username: edgeImport.username,
-          limit: edgeImport.limit
+          site: liveImport.site,
+          username: liveImport.username,
+          limit: liveImport.limit
         })
       });
 
@@ -66,7 +60,7 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
 
       const result = await response.json();
       
-      setSuccess(`Successfully imported ${result.imported} games for ${edgeImport.username} from ${edgeImport.site}`);
+      setSuccess(`Successfully imported ${result.imported} games for ${liveImport.username} from ${liveImport.site}`);
       if (result.errors && result.errors.length > 0) {
         setError(`Some errors occurred: ${result.errors.slice(0, 3).join(', ')}`);
       }
@@ -148,10 +142,7 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
   };
 
   const resetForm = () => {
-    setSinglePlayer({ username: '', site: 'both', limit: 50 });
-    setEdgeImport({ username: '', site: 'chess.com', limit: 50 });
-    setBatchPlayers('');
-    setBatchLimit(25);
+    setLiveImport({ username: '', site: 'chess.com', limit: 50 });
     setError('');
     setSuccess('');
     setProgress('');
@@ -163,262 +154,382 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
     onClose();
   };
 
+  const handlePGNSuccess = () => {
+    setShowPGNModal(false);
+    onSuccess?.();
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-      <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
-        <div className="mt-3">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                <Download className="w-5 h-5 text-white" />
+    <>
+      <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+        <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+          <div className="mt-3">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-3">
+                <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                  <Download className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-medium text-gray-900">Import Chess Game Data</h3>
+                  <p className="text-sm text-gray-600">Choose your import method based on your subscription</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-lg font-medium text-gray-900">Import Chess Game Data</h3>
-                <p className="text-sm text-gray-600">Fetch real games from Chess.com and Lichess APIs</p>
-              </div>
+              <button
+                onClick={handleClose}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <X className="w-6 h-6" />
+              </button>
             </div>
-            <button
-              onClick={handleClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
 
-          {/* Tabs */}
-          <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6">
-            <button
-              onClick={() => setActiveTab('edge')}
-              className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'edge'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Cloud className="w-4 h-4" />
-              <span>Edge Function</span>
-            </button>
-            <button
-              onClick={() => setActiveTab('demo')}
-              className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'demo'
-                  ? 'bg-white text-blue-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Zap className="w-4 h-4" />
-              <span>Demo Data</span>
-            </button>
-          </div>
-
-          {/* Status Messages */}
-          {error && (
-            <div className="mb-4 bg-red-50 border border-red-200 rounded-md p-3">
-              <div className="flex items-center">
-                <AlertCircle className="w-4 h-4 text-red-500 mr-2" />
-                <span className="text-sm text-red-700">{error}</span>
-              </div>
+            {/* Tabs */}
+            <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6">
+              <button
+                onClick={() => setActiveTab('pgn')}
+                className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === 'pgn'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <FileText className="w-4 h-4" />
+                <span>PGN Upload</span>
+                <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">Free</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('live')}
+                className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === 'live'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Cloud className="w-4 h-4" />
+                <span>Live Import</span>
+                <Crown className="w-3 h-3 text-yellow-500" />
+              </button>
             </div>
-          )}
 
-          {success && (
-            <div className="mb-4 bg-green-50 border border-green-200 rounded-md p-3">
-              <div className="flex items-center">
-                <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-                <span className="text-sm text-green-700">{success}</span>
+            {/* Status Messages */}
+            {error && (
+              <div className="mb-4 bg-red-50 border border-red-200 rounded-md p-3">
+                <div className="flex items-center">
+                  <AlertTriangle className="w-4 h-4 text-red-500 mr-2" />
+                  <span className="text-sm text-red-700">{error}</span>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {progress && (
-            <div className="mb-4 bg-blue-50 border border-blue-200 rounded-md p-3">
-              <div className="flex items-center">
-                <Loader2 className="w-4 h-4 text-blue-500 mr-2 animate-spin" />
-                <span className="text-sm text-blue-700">{progress}</span>
+            {success && (
+              <div className="mb-4 bg-green-50 border border-green-200 rounded-md p-3">
+                <div className="flex items-center">
+                  <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                  <span className="text-sm text-green-700">{success}</span>
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Edge Function Tab */}
-          {activeTab === 'edge' && (
-            <div className="space-y-6">
-              <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6">
-                <div className="flex items-start space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-                    <Cloud className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="text-lg font-medium text-gray-900 mb-2">Supabase Edge Function Import</h4>
-                    <p className="text-gray-600 mb-4">
-                      Use our serverless Edge Function for secure, rate-limited imports with proper authentication.
-                      This method includes duplicate detection, resumable imports, and automatic cursor tracking.
-                    </p>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div className="flex items-center space-x-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>Rate Limited & Secure</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>Duplicate Prevention</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>Resumable Imports</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>Production Ready</span>
+            {progress && (
+              <div className="mb-4 bg-blue-50 border border-blue-200 rounded-md p-3">
+                <div className="flex items-center">
+                  <Loader2 className="w-4 h-4 text-blue-500 mr-2 animate-spin" />
+                  <span className="text-sm text-blue-700">{progress}</span>
+                </div>
+              </div>
+            )}
+
+            {/* PGN Upload Tab */}
+            {activeTab === 'pgn' && (
+              <div className="space-y-6">
+                <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-6">
+                  <div className="flex items-start space-x-4">
+                    <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-blue-500 rounded-lg flex items-center justify-center">
+                      <FileText className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-lg font-medium text-gray-900 mb-2">PGN File Import</h4>
+                      <p className="text-gray-600 mb-4">
+                        Upload your chess games from PGN files downloaded from Chess.com or Lichess. 
+                        Perfect for analyzing your personal game history with our anti-cheat detection system.
+                      </p>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Upload any PGN file</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>No API rate limits</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Batch game processing</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Free for all users</span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Username
-                  </label>
-                  <input
-                    type="text"
-                    value={edgeImport.username}
-                    onChange={(e) => setEdgeImport({ ...edgeImport, username: e.target.value })}
-                    placeholder="e.g., hikaru, magnuscarlsen"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-medium text-blue-900">How to get your PGN files:</h4>
+                      <div className="mt-2 space-y-2 text-sm text-blue-700">
+                        <div>
+                          <strong>Chess.com:</strong> Go to your profile → Games → Download games → Select date range → Download PGN
+                        </div>
+                        <div>
+                          <strong>Lichess:</strong> Go to your profile → Export games → Select format (PGN) → Download
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Site
-                  </label>
-                  <select
-                    value={edgeImport.site}
-                    onChange={(e) => setEdgeImport({ ...edgeImport, site: e.target.value as 'chess.com' | 'lichess' })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={handleClose}
+                    disabled={loading}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors disabled:opacity-50"
                   >
-                    <option value="chess.com">Chess.com</option>
-                    <option value="lichess">Lichess</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Game Limit
-                  </label>
-                  <input
-                    type="number"
-                    value={edgeImport.limit}
-                    onChange={(e) => setEdgeImport({ ...edgeImport, limit: parseInt(e.target.value) })}
-                    min="1"
-                    max="100"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => setShowPGNModal(true)}
+                    disabled={loading}
+                    className="flex items-center space-x-2 px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors disabled:opacity-50"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Upload PGN File</span>
+                  </button>
                 </div>
               </div>
+            )}
 
-              <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                <div className="flex items-start space-x-2">
-                  <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-                  <div>
-                    <h4 className="text-sm font-medium text-green-800">Production-Ready Import</h4>
-                    <p className="text-sm text-green-700 mt-1">
-                      This Edge Function handles authentication, rate limiting, duplicate detection, and cursor tracking automatically.
-                      Perfect for production use with proper error handling and resumable imports.
-                    </p>
+            {/* Live Import Tab */}
+            {activeTab === 'live' && (
+              <div className="space-y-6">
+                {!hasPremiumAccess && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                    <div className="flex items-start space-x-3">
+                      <Crown className="w-5 h-5 text-yellow-600 mt-0.5" />
+                      <div>
+                        <h4 className="text-sm font-medium text-yellow-900">Premium Feature</h4>
+                        <p className="text-sm text-yellow-700 mt-1">
+                          Live import from Chess.com and Lichess APIs is available for premium members. 
+                          Standard users can upload PGN files using the "PGN Upload" tab.
+                        </p>
+                        <div className="mt-3">
+                          <button
+                            onClick={() => setActiveTab('pgn')}
+                            className="text-sm bg-yellow-100 text-yellow-800 px-3 py-1 rounded-md hover:bg-yellow-200 transition-colors"
+                          >
+                            Try PGN Upload Instead
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
+                )}
 
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={handleClose}
-                  disabled={loading}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleEdgeFunctionImport}
-                  disabled={loading || !edgeImport.username.trim()}
-                  className="flex items-center space-x-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50"
-                >
-                  {loading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Cloud className="w-4 h-4" />
-                  )}
-                  <span>{loading ? 'Importing...' : 'Import via Edge Function'}</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Demo Data Tab */}
-          {activeTab === 'demo' && (
-            <div className="space-y-6">
-              <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6">
-                <div className="flex items-start space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-                    <Zap className="w-6 h-6 text-white" />
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="text-lg font-medium text-gray-900 mb-2">Quick Demo Setup</h4>
-                    <p className="text-gray-600 mb-4">
-                      Import games from top chess players using Edge Functions to quickly populate your dashboard with realistic data.
-                      This will fetch recent games from players like Hikaru, Magnus Carlsen, and other top GMs.
-                    </p>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div className="flex items-center space-x-2">
-                        <Globe className="w-4 h-4 text-blue-500" />
-                        <span>Chess.com & Lichess</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Users className="w-4 h-4 text-green-500" />
-                        <span>5 Top Players</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Database className="w-4 h-4 text-purple-500" />
-                        <span>~100 Games Total</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Cloud className="w-4 h-4 text-orange-500" />
-                        <span>Edge Function Powered</span>
+                <div className={`bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 ${!hasPremiumAccess ? 'opacity-50' : ''}`}>
+                  <div className="flex items-start space-x-4">
+                    <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
+                      <Cloud className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-lg font-medium text-gray-900 mb-2">Live API Import</h4>
+                      <p className="text-gray-600 mb-4">
+                        Directly fetch games from Chess.com and Lichess APIs with automatic analysis and duplicate detection.
+                      </p>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Real-time Import</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Automatic Analysis</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Duplicate Prevention</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Rate Limited & Secure</span>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex justify-end space-x-3">
-                <button
-                  onClick={handleClose}
-                  disabled={loading}
-                  className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors disabled:opacity-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDemoDataImport}
-                  disabled={loading}
-                  className="flex items-center space-x-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50"
-                >
-                  {loading ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Zap className="w-4 h-4" />
-                  )}
-                  <span>{loading ? 'Importing...' : 'Import Demo Data'}</span>
-                </button>
+                {hasPremiumAccess && (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Username
+                        </label>
+                        <input
+                          type="text"
+                          value={liveImport.username}
+                          onChange={(e) => setLiveImport({ ...liveImport, username: e.target.value })}
+                          placeholder="e.g., hikaru, magnuscarlsen"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          disabled={loading}
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Site
+                        </label>
+                        <select
+                          value={liveImport.site}
+                          onChange={(e) => setLiveImport({ ...liveImport, site: e.target.value as 'chess.com' | 'lichess' })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          disabled={loading}
+                        >
+                          <option value="chess.com">Chess.com</option>
+                          <option value="lichess">Lichess</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Game Limit
+                        </label>
+                        <input
+                          type="number"
+                          value={liveImport.limit}
+                          onChange={(e) => setLiveImport({ ...liveImport, limit: parseInt(e.target.value) })}
+                          min="1"
+                          max="100"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          disabled={loading}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="bg-green-50 border border-green-200 rounded-md p-4">
+                      <div className="flex items-start space-x-2">
+                        <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                        <div>
+                          <h4 className="text-sm font-medium text-green-800">Production-Ready Import</h4>
+                          <p className="text-sm text-green-700 mt-1">
+                            This Edge Function handles authentication, rate limiting, duplicate detection, and cursor tracking automatically.
+                            Perfect for production use with proper error handling and resumable imports.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end space-x-3">
+                      <button
+                        onClick={handleClose}
+                        disabled={loading}
+                        className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleLiveImport}
+                        disabled={loading || !liveImport.username.trim()}
+                        className="flex items-center space-x-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50"
+                      >
+                        {loading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Cloud className="w-4 h-4" />
+                        )}
+                        <span>{loading ? 'Importing...' : 'Import via Live API'}</span>
+                      </button>
+                      <button
+                        onClick={handleDemoDataImport}
+                        disabled={loading}
+                        className="flex items-center space-x-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50"
+                      >
+                        {loading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Zap className="w-4 h-4" />
+                        )}
+                        <span>{loading ? 'Importing...' : 'Import Demo Data'}</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {!hasPremiumAccess && (
+                  <div className="flex justify-end space-x-3">
+                    <button
+                      onClick={handleClose}
+                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      disabled
+                      className="flex items-center space-x-2 px-6 py-2 bg-gray-400 text-white rounded-md cursor-not-allowed opacity-50"
+                    >
+                      <Crown className="w-4 h-4" />
+                      <span>Premium Required</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Feature Comparison */}
+            <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-start space-x-3">
+                <Zap className="w-5 h-5 text-blue-600 mt-0.5" />
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900">Import Method Comparison</h4>
+                  <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <p className="font-medium text-green-700">✓ PGN Upload (Free)</p>
+                      <ul className="text-gray-600 mt-1 space-y-1">
+                        <li>• Upload your own game files</li>
+                        <li>• Works with any PGN file</li>
+                        <li>• No API rate limits</li>
+                        <li>• Basic analysis included</li>
+                        <li>• Available to all users</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium text-purple-700">⭐ Live Import (Premium)</p>
+                      <ul className="text-gray-600 mt-1 space-y-1">
+                        <li>• Direct API integration</li>
+                        <li>• Real-time game fetching</li>
+                        <li>• Advanced analysis features</li>
+                        <li>• Automatic updates</li>
+                        <li>• Premium subscription required</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
-          )}
+          </div>
         </div>
       </div>
-    </div>
+
+      {/* PGN Import Modal */}
+      <PGNImportModal
+        isOpen={showPGNModal}
+        onClose={() => setShowPGNModal(false)}
+        onSuccess={handlePGNSuccess}
+      />
+    </>
   );
 };
 
