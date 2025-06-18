@@ -545,17 +545,17 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                     setError('');
                     setSuccess('');
                   }}
-                  placeholder="Paste your PGN content here... (supports multiple games)
+                  placeholder='Paste your PGN content here... (supports multiple games)
 
 Example:
-[Event \"Rated Blitz game\"]
-[Site \"lichess.org\"]
-[Date \"2024.01.15\"]
-[White \"PlayerName\"]
-[Black \"Opponent\"]
-[Result \"1-0\"]
+[Event "Rated Blitz game"]
+[Site "lichess.org"]
+[Date "2024.01.15"]
+[White "PlayerName"]
+[Black "Opponent"]
+[Result "1-0"]
 
-1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0"
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0'
                   className="w-full h-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
                   disabled={isProcessing}
                 />
