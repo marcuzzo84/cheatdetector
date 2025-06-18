@@ -48,14 +48,24 @@ export const useLiveKPIs = () => {
     try {
       setError(null);
       
-      // First check if we have any data at all
-      const { data: scoresCount, error: countError } = await supabase
+      // Set a timeout for the query
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), 10000)
+      );
+      
+      // First check if we have any data at all with a simple count
+      const countPromise = supabase
         .from('scores')
         .select('id', { count: 'exact', head: true });
 
+      const { data: scoresCount, error: countError } = await Promise.race([
+        countPromise,
+        timeoutPromise
+      ]) as any;
+
       if (countError) {
         console.error('Error checking scores count:', countError);
-        // If we can't even check for data, provide fallback KPIs
+        // Provide fallback KPIs instead of showing error
         setKpis({
           games_24h: 0,
           suspect_pct: 0,
@@ -77,31 +87,44 @@ export const useLiveKPIs = () => {
         return;
       }
 
-      // Try to get KPIs from function
-      const { data, error } = await supabase.rpc('get_dashboard_kpis');
+      // Try to get KPIs from function with timeout
+      const functionPromise = supabase.rpc('get_dashboard_kpis');
       
-      if (error) {
-        console.error('Error fetching KPIs:', error);
-        // Fallback to manual calculation
-        const fallbackKpis = await calculateFallbackKPIs();
-        setKpis(fallbackKpis);
-        setError(null); // Don't show error if we have fallback data
-        setLoading(false);
-        return;
-      }
+      try {
+        const { data, error } = await Promise.race([
+          functionPromise,
+          timeoutPromise
+        ]) as any;
+        
+        if (error) {
+          console.error('Error fetching KPIs:', error);
+          // Fallback to manual calculation
+          const fallbackKpis = await calculateFallbackKPIs();
+          setKpis(fallbackKpis);
+          setError(null); // Don't show error if we have fallback data
+          setLoading(false);
+          return;
+        }
 
-      if (data && data.length > 0) {
-        setKpis({
-          games_24h: data[0].games_24h || 0,
-          suspect_pct: data[0].suspect_pct || 0,
-          avg_elo: data[0].avg_elo || 0
-        });
-      } else {
-        // Function returned no data, use fallback
+        if (data && data.length > 0) {
+          setKpis({
+            games_24h: data[0].games_24h || 0,
+            suspect_pct: data[0].suspect_pct || 0,
+            avg_elo: data[0].avg_elo || 0
+          });
+        } else {
+          // Function returned no data, use fallback
+          const fallbackKpis = await calculateFallbackKPIs();
+          setKpis(fallbackKpis);
+        }
+        setError(null);
+      } catch (functionError) {
+        console.error('Function call failed:', functionError);
+        // Use fallback calculation
         const fallbackKpis = await calculateFallbackKPIs();
         setKpis(fallbackKpis);
+        setError(null);
       }
-      setError(null);
     } catch (err) {
       console.error('Error in fetchKPIs:', err);
       // Provide fallback data instead of showing error
@@ -118,11 +141,15 @@ export const useLiveKPIs = () => {
 
   const calculateFallbackKPIs = async (): Promise<KPIData> => {
     try {
-      // Get games from last 24 hours
+      // Get games from last 24 hours with timeout
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
 
-      const { data: recentScores, error } = await supabase
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Fallback query timeout')), 5000)
+      );
+
+      const queryPromise = supabase
         .from('scores')
         .select(`
           suspicion_level,
@@ -132,17 +159,23 @@ export const useLiveKPIs = () => {
             )
           )
         `)
-        .gte('created_at', yesterday.toISOString());
+        .gte('created_at', yesterday.toISOString())
+        .limit(1000); // Limit to prevent large queries
+
+      const { data: recentScores, error } = await Promise.race([
+        queryPromise,
+        timeoutPromise
+      ]) as any;
 
       if (error || !recentScores) {
         return { games_24h: 0, suspect_pct: 0, avg_elo: 0 };
       }
 
       const games24h = recentScores.length;
-      const suspiciousGames = recentScores.filter(s => s.suspicion_level >= 70).length;
+      const suspiciousGames = recentScores.filter((s: any) => s.suspicion_level >= 70).length;
       const suspectPct = games24h > 0 ? (suspiciousGames / games24h) * 100 : 0;
       const avgElo = games24h > 0 
-        ? recentScores.reduce((sum, s) => sum + (s.games.players.elo || 0), 0) / games24h 
+        ? recentScores.reduce((sum: number, s: any) => sum + (s.games.players.elo || 0), 0) / games24h 
         : 0;
 
       return {
@@ -157,8 +190,16 @@ export const useLiveKPIs = () => {
   };
 
   useEffect(() => {
-    // Initial fetch
-    fetchKPIs();
+    // Initial fetch with timeout
+    const fetchTimeout = setTimeout(() => {
+      console.warn('KPI fetch taking too long, using fallback');
+      setKpis({ games_24h: 0, suspect_pct: 0, avg_elo: 0 });
+      setLoading(false);
+    }, 15000); // 15 second timeout
+
+    fetchKPIs().finally(() => {
+      clearTimeout(fetchTimeout);
+    });
 
     // Set up realtime subscription for live updates
     const channel = supabase
@@ -175,33 +216,10 @@ export const useLiveKPIs = () => {
           fetchKPIs();
         }
       )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'games'
-        },
-        () => {
-          // Refetch KPIs when games table changes
-          fetchKPIs();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'players'
-        },
-        () => {
-          // Refetch KPIs when players table changes
-          fetchKPIs();
-        }
-      )
       .subscribe();
 
     return () => {
+      clearTimeout(fetchTimeout);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -218,10 +236,20 @@ export const useLiveSuspiciousScores = () => {
     try {
       setError(null);
       
+      // Set a timeout for the query
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), 10000)
+      );
+      
       // First check if we have any scores data
-      const { data: scoresCount, error: countError } = await supabase
+      const countPromise = supabase
         .from('scores')
         .select('id', { count: 'exact', head: true });
+
+      const { data: scoresCount, error: countError } = await Promise.race([
+        countPromise,
+        timeoutPromise
+      ]) as any;
 
       if (countError) {
         console.error('Error checking scores:', countError);
@@ -238,7 +266,7 @@ export const useLiveSuspiciousScores = () => {
         return;
       }
 
-      const { data, error } = await supabase
+      const queryPromise = supabase
         .from('scores')
         .select(`
           *,
@@ -253,6 +281,11 @@ export const useLiveSuspiciousScores = () => {
         .gte('suspicion_level', 80)
         .order('created_at', { ascending: false })
         .limit(20);
+
+      const { data, error } = await Promise.race([
+        queryPromise,
+        timeoutPromise
+      ]) as any;
 
       if (error) {
         console.error('Error fetching suspicious scores:', error);
@@ -269,7 +302,7 @@ export const useLiveSuspiciousScores = () => {
         return;
       }
 
-      const transformedScores: SuspiciousScore[] = data.map(score => ({
+      const transformedScores: SuspiciousScore[] = data.map((score: any) => ({
         id: score.id,
         game_id: score.game_id,
         match_engine_pct: score.match_engine_pct,
@@ -296,8 +329,16 @@ export const useLiveSuspiciousScores = () => {
   };
 
   useEffect(() => {
-    // Initial fetch
-    fetchSuspiciousScores();
+    // Initial fetch with timeout
+    const fetchTimeout = setTimeout(() => {
+      console.warn('Suspicious scores fetch taking too long');
+      setScores([]);
+      setLoading(false);
+    }, 15000); // 15 second timeout
+
+    fetchSuspiciousScores().finally(() => {
+      clearTimeout(fetchTimeout);
+    });
 
     // Set up realtime subscription for live updates
     const channel = supabase
@@ -315,21 +356,10 @@ export const useLiveSuspiciousScores = () => {
           fetchSuspiciousScores();
         }
       )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'scores'
-        },
-        () => {
-          // Refetch when scores are updated
-          fetchSuspiciousScores();
-        }
-      )
       .subscribe();
 
     return () => {
+      clearTimeout(fetchTimeout);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -346,10 +376,20 @@ export const useLiveSuspicionTrends = () => {
     try {
       setError(null);
       
+      // Set a timeout for the query
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), 10000)
+      );
+      
       // First check if we have any scores data
-      const { data: scoresCount, error: countError } = await supabase
+      const countPromise = supabase
         .from('scores')
         .select('id', { count: 'exact', head: true });
+
+      const { data: scoresCount, error: countError } = await Promise.race([
+        countPromise,
+        timeoutPromise
+      ]) as any;
 
       if (countError) {
         console.error('Error checking scores:', countError);
@@ -366,36 +406,48 @@ export const useLiveSuspicionTrends = () => {
         return;
       }
 
-      // Try to use the new function for efficient daily aggregation
-      const { data, error } = await supabase.rpc('get_suspicion_trends', { days_back: 30 });
+      // Try to use the function for efficient daily aggregation
+      const functionPromise = supabase.rpc('get_suspicion_trends', { days_back: 30 });
 
-      if (error) {
-        console.error('Error fetching suspicion trends:', error);
-        // Fallback to manual calculation
+      try {
+        const { data, error } = await Promise.race([
+          functionPromise,
+          timeoutPromise
+        ]) as any;
+
+        if (error) {
+          console.error('Error fetching suspicion trends:', error);
+          // Fallback to manual calculation
+          const fallbackTrends = await calculateFallbackTrends();
+          setTrends(fallbackTrends);
+          setError(null); // Don't show error if we have fallback data
+          setLoading(false);
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          console.log('No trend data returned, using fallback');
+          const fallbackTrends = await calculateFallbackTrends();
+          setTrends(fallbackTrends);
+          setLoading(false);
+          return;
+        }
+
+        // Transform the data to match our expected format
+        const trendData: SuspicionTrend[] = data.map((row: any) => ({
+          date: row.date,
+          suspicion_rate: row.suspicion_rate,
+          volume: row.volume
+        }));
+
+        setTrends(trendData);
+        setError(null);
+      } catch (functionError) {
+        console.error('Function call failed:', functionError);
         const fallbackTrends = await calculateFallbackTrends();
         setTrends(fallbackTrends);
-        setError(null); // Don't show error if we have fallback data
-        setLoading(false);
-        return;
+        setError(null);
       }
-
-      if (!data || data.length === 0) {
-        console.log('No trend data returned, using fallback');
-        const fallbackTrends = await calculateFallbackTrends();
-        setTrends(fallbackTrends);
-        setLoading(false);
-        return;
-      }
-
-      // Transform the data to match our expected format
-      const trendData: SuspicionTrend[] = data.map(row => ({
-        date: row.date,
-        suspicion_rate: row.suspicion_rate,
-        volume: row.volume
-      }));
-
-      setTrends(trendData);
-      setError(null);
     } catch (err) {
       console.error('Error in fetchSuspicionTrends:', err);
       // Use fallback data instead of showing error
@@ -423,14 +475,24 @@ export const useLiveSuspicionTrends = () => {
 
   const calculateFallbackTrends = async (): Promise<SuspicionTrend[]> => {
     try {
-      // Get last 30 days of data
+      // Get last 30 days of data with timeout
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const { data: scores, error } = await supabase
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Fallback trends timeout')), 5000)
+      );
+
+      const queryPromise = supabase
         .from('scores')
         .select('suspicion_level, created_at')
-        .gte('created_at', thirtyDaysAgo.toISOString());
+        .gte('created_at', thirtyDaysAgo.toISOString())
+        .limit(10000); // Limit to prevent large queries
+
+      const { data: scores, error } = await Promise.race([
+        queryPromise,
+        timeoutPromise
+      ]) as any;
 
       if (error || !scores || scores.length === 0) {
         return generateFallbackTrends();
@@ -439,7 +501,7 @@ export const useLiveSuspicionTrends = () => {
       // Group by date and calculate daily stats
       const dailyStats = new Map<string, { total: number; suspicious: number }>();
       
-      scores.forEach(score => {
+      scores.forEach((score: any) => {
         const date = score.created_at.split('T')[0];
         const stats = dailyStats.get(date) || { total: 0, suspicious: 0 };
         stats.total++;
@@ -472,8 +534,16 @@ export const useLiveSuspicionTrends = () => {
   };
 
   useEffect(() => {
-    // Initial fetch
-    fetchSuspicionTrends();
+    // Initial fetch with timeout
+    const fetchTimeout = setTimeout(() => {
+      console.warn('Suspicion trends fetch taking too long');
+      setTrends(generateFallbackTrends());
+      setLoading(false);
+    }, 15000); // 15 second timeout
+
+    fetchSuspicionTrends().finally(() => {
+      clearTimeout(fetchTimeout);
+    });
 
     // Set up realtime subscription for live updates using the aggregated view
     const channel = supabase
@@ -487,25 +557,13 @@ export const useLiveSuspicionTrends = () => {
         },
         () => {
           // Refetch trends when new scores are added
-          // The view will automatically recalculate daily aggregations
-          fetchSuspicionTrends();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'scores'
-        },
-        () => {
-          // Refetch trends when scores are updated
           fetchSuspicionTrends();
         }
       )
       .subscribe();
 
     return () => {
+      clearTimeout(fetchTimeout);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -524,10 +582,20 @@ export const useLiveDailySuspicionView = () => {
     try {
       setError(null);
       
+      // Set a timeout for the query
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), 10000)
+      );
+      
       // First check if we have any data
-      const { data: scoresCount, error: countError } = await supabase
+      const countPromise = supabase
         .from('scores')
         .select('id', { count: 'exact', head: true });
+
+      const { data: scoresCount, error: countError } = await Promise.race([
+        countPromise,
+        timeoutPromise
+      ]) as any;
 
       if (countError) {
         console.error('Error checking scores:', countError);
@@ -547,35 +615,46 @@ export const useLiveDailySuspicionView = () => {
       }
 
       // Use the realtime function for better performance
-      const { data, error } = await supabase.rpc('get_daily_suspicion_realtime');
+      const functionPromise = supabase.rpc('get_daily_suspicion_realtime');
 
-      if (error) {
-        console.error('Error fetching daily suspicion view:', error);
-        // Use fallback data instead of showing error
+      try {
+        const { data, error } = await Promise.race([
+          functionPromise,
+          timeoutPromise
+        ]) as any;
+
+        if (error) {
+          console.error('Error fetching daily suspicion view:', error);
+          // Use fallback data instead of showing error
+          setDailyData(generateFallbackDailyData());
+          setIsLive(false);
+          setLoading(false);
+          return;
+        }
+
+        if (!data || data.length === 0) {
+          console.log('No daily data returned, using fallback');
+          setDailyData(generateFallbackDailyData());
+          setIsLive(false);
+          setLoading(false);
+          return;
+        }
+
+        // Transform the data to match our expected format
+        const transformedData: DailySuspicionView[] = data.map((row: any) => ({
+          bucket: row.bucket,
+          rate: row.rate,
+          volume: row.volume
+        }));
+
+        setDailyData(transformedData);
+        setError(null);
+        setIsLive(true);
+      } catch (functionError) {
+        console.error('Function call failed:', functionError);
         setDailyData(generateFallbackDailyData());
         setIsLive(false);
-        setLoading(false);
-        return;
       }
-
-      if (!data || data.length === 0) {
-        console.log('No daily data returned, using fallback');
-        setDailyData(generateFallbackDailyData());
-        setIsLive(false);
-        setLoading(false);
-        return;
-      }
-
-      // Transform the data to match our expected format
-      const transformedData: DailySuspicionView[] = data.map(row => ({
-        bucket: row.bucket,
-        rate: row.rate,
-        volume: row.volume
-      }));
-
-      setDailyData(transformedData);
-      setError(null);
-      setIsLive(true);
     } catch (err) {
       console.error('Error in fetchDailyData:', err);
       // Use fallback data instead of showing error
@@ -601,8 +680,17 @@ export const useLiveDailySuspicionView = () => {
   };
 
   useEffect(() => {
-    // Initial fetch
-    fetchDailyData();
+    // Initial fetch with timeout
+    const fetchTimeout = setTimeout(() => {
+      console.warn('Daily suspicion view fetch taking too long');
+      setDailyData(generateFallbackDailyData());
+      setIsLive(false);
+      setLoading(false);
+    }, 15000); // 15 second timeout
+
+    fetchDailyData().finally(() => {
+      clearTimeout(fetchTimeout);
+    });
 
     // Set up realtime subscription with live: true behavior
     const channel = supabase
@@ -620,43 +708,13 @@ export const useLiveDailySuspicionView = () => {
           fetchDailyData();
         }
       )
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'scores'
-        },
-        (payload) => {
-          console.log('🔴 Live update: Score updated', payload);
-          // Refetch when scores are updated
-          fetchDailyData();
-        }
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: 'DELETE',
-          schema: 'public',
-          table: 'scores'
-        },
-        (payload) => {
-          console.log('🔴 Live update: Score deleted', payload);
-          // Refetch when scores are deleted
-          fetchDailyData();
-        }
-      )
-      // Listen for custom notifications from our trigger
-      .on('broadcast', { event: 'daily_suspicion_changed' }, (payload) => {
-        console.log('🔴 Live update: Daily suspicion broadcast', payload);
-        fetchDailyData();
-      })
       .subscribe((status) => {
         console.log('📡 Daily suspicion subscription status:', status);
         setIsLive(status === 'SUBSCRIBED');
       });
 
     return () => {
+      clearTimeout(fetchTimeout);
       supabase.removeChannel(channel);
       setIsLive(false);
     };

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { useLiveSuspicionTrends, useLiveDailySuspicionView } from '../hooks/useLiveQueries';
-import { Loader2, AlertTriangle, Wifi, Database, Radio } from 'lucide-react';
+import { Loader2, AlertTriangle, Wifi, Database, Radio, RefreshCw } from 'lucide-react';
 
 interface SuspicionTrend {
   date: string;
@@ -18,13 +18,14 @@ const SuspicionChart: React.FC<SuspicionChartProps> = ({
   useAggregatedView = true 
 }) => {
   // Use the new aggregated view hook for better performance with live: true behavior
-  const { trends: functionData, loading: functionLoading, error: functionError } = useLiveSuspicionTrends();
-  const { dailyData: viewData, loading: viewLoading, error: viewError, isLive } = useLiveDailySuspicionView();
+  const { trends: functionData, loading: functionLoading, error: functionError, refetch: refetchFunction } = useLiveSuspicionTrends();
+  const { dailyData: viewData, loading: viewLoading, error: viewError, isLive, refetch: refetchView } = useLiveDailySuspicionView();
   
   // Choose data source based on preference
   const loading = useAggregatedView ? viewLoading : functionLoading;
   const error = useAggregatedView ? viewError : functionError;
   const liveData = useAggregatedView ? viewData : functionData;
+  const refetch = useAggregatedView ? refetchView : refetchFunction;
   
   const chartData = useMemo(() => {
     // Priority: live data > prop data > fallback data
@@ -77,7 +78,7 @@ const SuspicionChart: React.FC<SuspicionChartProps> = ({
           <Loader2 className="w-8 h-8 mx-auto text-gray-400 animate-spin mb-2" />
           <p className="text-gray-500">Loading suspicion trends...</p>
           <p className="text-xs text-gray-400 mt-1">
-            {useAggregatedView ? 'Using aggregated view with live: true' : 'Using function query'}
+            {useAggregatedView ? 'Using aggregated view with live updates' : 'Using function query'}
           </p>
         </div>
       </div>
@@ -91,6 +92,13 @@ const SuspicionChart: React.FC<SuspicionChartProps> = ({
           <AlertTriangle className="w-8 h-8 mx-auto text-red-400 mb-2" />
           <p className="text-red-600">Error loading trends: {error}</p>
           <p className="text-sm text-gray-500 mt-1">Showing fallback data</p>
+          <button
+            onClick={() => refetch()}
+            className="mt-2 flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm mx-auto"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Retry</span>
+          </button>
         </div>
       </div>
     );
@@ -121,10 +129,25 @@ const SuspicionChart: React.FC<SuspicionChartProps> = ({
               <span className="font-medium">Live function data</span>
             </div>
           )}
+          {chartData.length > 0 && chartData.every(d => d.volume === 0) && (
+            <div className="flex items-center space-x-2 text-gray-500 text-sm">
+              <Database className="w-4 h-4" />
+              <span>No data - showing demo chart</span>
+            </div>
+          )}
         </div>
         
-        <div className="text-xs text-gray-500">
-          {chartData.length} days • {chartData.reduce((sum, d) => sum + d.volume, 0)} total games
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => refetch()}
+            className="flex items-center space-x-1 px-2 py-1 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded transition-colors text-xs"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Refresh</span>
+          </button>
+          <div className="text-xs text-gray-500">
+            {chartData.length} days • {chartData.reduce((sum, d) => sum + d.volume, 0)} total games
+          </div>
         </div>
       </div>
       
@@ -188,7 +211,7 @@ const SuspicionChart: React.FC<SuspicionChartProps> = ({
           </div>
           <div className="flex items-center space-x-2">
             <div className="w-3 h-3 bg-gradient-to-t from-red-500 to-orange-400 rounded"></div>
-            <span>Suspicion rate (≥80%)</span>
+            <span>Suspicion rate (≥70%)</span>
           </div>
           {isLive && (
             <div className="flex items-center space-x-2">
@@ -227,8 +250,13 @@ const SuspicionChart: React.FC<SuspicionChartProps> = ({
       
       {/* Performance note */}
       <div className="text-xs text-gray-400 bg-blue-50 p-2 rounded">
-        💡 <strong>Live Chart:</strong> This chart updates automatically as new game analysis results arrive. 
-        The view is marked as part of the publication with <code>live: true</code> behavior.
+        💡 <strong>Enhanced Loading:</strong> This chart now has improved timeout handling and fallback data. 
+        If no real data is available, it shows demo data to prevent loading issues.
+        {chartData.reduce((sum, d) => sum + d.volume, 0) === 0 && (
+          <span className="text-orange-600 ml-2">
+            <strong>Note:</strong> Currently showing demo data - import some games to see real analysis.
+          </span>
+        )}
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Filter, Search, Calendar, Loader2, Download, Database } from 'lucide-react';
+import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Filter, Search, Calendar, Loader2, Download, Database, RefreshCw } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import DataImportModal from '../components/DataImportModal';
 
@@ -30,16 +30,27 @@ const Games: React.FC = () => {
   const [suspicionFilter, setSuspicionFilter] = useState('all');
   const [sortBy, setSortBy] = useState('date');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchGames = async () => {
     try {
       setLoading(true);
       setError(null);
       
+      // Set a timeout for the query
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), 15000)
+      );
+      
       // First check if we have any games data
-      const { data: gamesCount, error: countError } = await supabase
+      const countPromise = supabase
         .from('games')
         .select('id', { count: 'exact', head: true });
+
+      const { data: gamesCount, error: countError } = await Promise.race([
+        countPromise,
+        timeoutPromise
+      ]) as any;
 
       if (countError) {
         console.error('Error checking games count:', countError);
@@ -58,7 +69,7 @@ const Games: React.FC = () => {
       }
       
       // Fetch games with player and score data
-      const { data, error } = await supabase
+      const queryPromise = supabase
         .from('games')
         .select(`
           *,
@@ -76,6 +87,11 @@ const Games: React.FC = () => {
         .order('date', { ascending: false })
         .limit(100);
 
+      const { data, error } = await Promise.race([
+        queryPromise,
+        timeoutPromise
+      ]) as any;
+
       if (error) {
         console.error('Error fetching games:', error);
         setError(error.message);
@@ -92,7 +108,7 @@ const Games: React.FC = () => {
       }
 
       // Transform the data
-      const transformedGames: LiveGame[] = data.map(game => {
+      const transformedGames: LiveGame[] = data.map((game: any) => {
         const player = game.players;
         const score = game.scores[0]; // Get the first score for this game
         
@@ -118,11 +134,26 @@ const Games: React.FC = () => {
       setGames([]);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchGames();
+  };
+
   useEffect(() => {
-    fetchGames();
+    // Initial fetch with timeout
+    const fetchTimeout = setTimeout(() => {
+      console.warn('Games fetch taking too long');
+      setGames([]);
+      setLoading(false);
+    }, 20000); // 20 second timeout
+
+    fetchGames().finally(() => {
+      clearTimeout(fetchTimeout);
+    });
 
     // Set up realtime subscription
     const channel = supabase
@@ -136,6 +167,7 @@ const Games: React.FC = () => {
       .subscribe();
 
     return () => {
+      clearTimeout(fetchTimeout);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -218,19 +250,30 @@ const Games: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900">Games</h1>
             <p className="mt-2 text-gray-600">Analyze individual game performances and patterns</p>
           </div>
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span>Import Games</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Import Games</span>
+            </button>
+          </div>
         </div>
         
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <Loader2 className="w-8 h-8 mx-auto text-gray-400 animate-spin mb-2" />
             <p className="text-gray-500">Loading games from database...</p>
+            <p className="text-sm text-gray-400 mt-1">This may take a moment on first load</p>
           </div>
         </div>
       </div>
@@ -245,13 +288,23 @@ const Games: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900">Games</h1>
             <p className="mt-2 text-gray-600">Analyze individual game performances and patterns</p>
           </div>
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span>Import Games</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Retry</span>
+            </button>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Import Games</span>
+            </button>
+          </div>
         </div>
         
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -259,6 +312,13 @@ const Games: React.FC = () => {
             <AlertTriangle className="w-5 h-5 text-red-500" />
             <span className="text-red-700">Error loading games: {error}</span>
           </div>
+          <button
+            onClick={handleRefresh}
+            className="mt-2 flex items-center space-x-1 px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Try Again</span>
+          </button>
         </div>
 
         <DataImportModal
@@ -278,13 +338,23 @@ const Games: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Games</h1>
           <p className="mt-2 text-gray-600">Analyze individual game performances and patterns ({games.length} total games)</p>
         </div>
-        <button
-          onClick={() => setShowImportModal(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          <span>Import Games</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>Import Games</span>
+          </button>
+        </div>
       </div>
 
       {/* Empty State */}

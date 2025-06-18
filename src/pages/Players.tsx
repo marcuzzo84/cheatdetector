@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Eye, TrendingUp, TrendingDown, Activity, AlertTriangle, CheckCircle, Loader2, Download, Database } from 'lucide-react';
+import { Search, Eye, TrendingUp, TrendingDown, Activity, AlertTriangle, CheckCircle, Loader2, Download, Database, RefreshCw } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import DataImportModal from '../components/DataImportModal';
 
@@ -28,16 +28,27 @@ const Players: React.FC = () => {
   const [suspicionFilter, setSuspicionFilter] = useState('all');
   const [sortBy, setSortBy] = useState('suspicion');
   const [showImportModal, setShowImportModal] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchPlayers = async () => {
     try {
       setLoading(true);
       setError(null);
       
+      // Set a timeout for the query
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Query timeout')), 15000)
+      );
+      
       // First check if we have any players data
-      const { data: playersCount, error: countError } = await supabase
+      const countPromise = supabase
         .from('players')
         .select('id', { count: 'exact', head: true });
+
+      const { data: playersCount, error: countError } = await Promise.race([
+        countPromise,
+        timeoutPromise
+      ]) as any;
 
       if (countError) {
         console.error('Error checking players count:', countError);
@@ -56,7 +67,7 @@ const Players: React.FC = () => {
       }
       
       // Fetch players with aggregated statistics
-      const { data, error } = await supabase
+      const queryPromise = supabase
         .from('players')
         .select(`
           *,
@@ -71,6 +82,11 @@ const Players: React.FC = () => {
           )
         `)
         .order('created_at', { ascending: false });
+
+      const { data, error } = await Promise.race([
+        queryPromise,
+        timeoutPromise
+      ]) as any;
 
       if (error) {
         console.error('Error fetching players:', error);
@@ -88,21 +104,21 @@ const Players: React.FC = () => {
       }
 
       // Transform and aggregate the data
-      const transformedPlayers: LivePlayer[] = data.map(player => {
-        const allScores = player.games.flatMap(game => game.scores);
+      const transformedPlayers: LivePlayer[] = data.map((player: any) => {
+        const allScores = player.games.flatMap((game: any) => game.scores);
         const gamesCount = player.games.length;
         const avgSuspicion = allScores.length > 0 
-          ? allScores.reduce((sum, score) => sum + score.suspicion_level, 0) / allScores.length 
+          ? allScores.reduce((sum: number, score: any) => sum + score.suspicion_level, 0) / allScores.length 
           : 0;
         const avgEngineMatch = allScores.length > 0 
-          ? allScores.reduce((sum, score) => sum + (score.match_engine_pct || 0), 0) / allScores.length 
+          ? allScores.reduce((sum: number, score: any) => sum + (score.match_engine_pct || 0), 0) / allScores.length 
           : 0;
         const avgMlProb = allScores.length > 0 
-          ? allScores.reduce((sum, score) => sum + (score.ml_prob || 0), 0) / allScores.length 
+          ? allScores.reduce((sum: number, score: any) => sum + (score.ml_prob || 0), 0) / allScores.length 
           : 0;
         
         // Find most recent activity
-        const mostRecentScore = allScores.sort((a, b) => 
+        const mostRecentScore = allScores.sort((a: any, b: any) => 
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         )[0];
         
@@ -131,6 +147,7 @@ const Players: React.FC = () => {
       setPlayers([]);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -146,8 +163,22 @@ const Players: React.FC = () => {
     return 'Recently';
   };
 
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchPlayers();
+  };
+
   useEffect(() => {
-    fetchPlayers();
+    // Initial fetch with timeout
+    const fetchTimeout = setTimeout(() => {
+      console.warn('Players fetch taking too long');
+      setPlayers([]);
+      setLoading(false);
+    }, 20000); // 20 second timeout
+
+    fetchPlayers().finally(() => {
+      clearTimeout(fetchTimeout);
+    });
 
     // Set up realtime subscription
     const channel = supabase
@@ -161,6 +192,7 @@ const Players: React.FC = () => {
       .subscribe();
 
     return () => {
+      clearTimeout(fetchTimeout);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -234,19 +266,30 @@ const Players: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900">Players</h1>
             <p className="mt-2 text-gray-600">Monitor and analyze player behavior patterns</p>
           </div>
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span>Import Players</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Import Players</span>
+            </button>
+          </div>
         </div>
         
         <div className="flex items-center justify-center py-12">
           <div className="text-center">
             <Loader2 className="w-8 h-8 mx-auto text-gray-400 animate-spin mb-2" />
             <p className="text-gray-500">Loading players from database...</p>
+            <p className="text-sm text-gray-400 mt-1">This may take a moment on first load</p>
           </div>
         </div>
       </div>
@@ -261,13 +304,23 @@ const Players: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900">Players</h1>
             <p className="mt-2 text-gray-600">Monitor and analyze player behavior patterns</p>
           </div>
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span>Import Players</span>
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Retry</span>
+            </button>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Import Players</span>
+            </button>
+          </div>
         </div>
         
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
@@ -275,6 +328,13 @@ const Players: React.FC = () => {
             <AlertTriangle className="w-5 h-5 text-red-500" />
             <span className="text-red-700">Error loading players: {error}</span>
           </div>
+          <button
+            onClick={handleRefresh}
+            className="mt-2 flex items-center space-x-1 px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Try Again</span>
+          </button>
         </div>
 
         <DataImportModal
@@ -294,13 +354,23 @@ const Players: React.FC = () => {
           <h1 className="text-3xl font-bold text-gray-900">Players</h1>
           <p className="mt-2 text-gray-600">Monitor and analyze player behavior patterns ({players.length} total players)</p>
         </div>
-        <button
-          onClick={() => setShowImportModal(true)}
-          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Download className="w-4 h-4" />
-          <span>Import Players</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+          <button
+            onClick={() => setShowImportModal(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            <span>Import Players</span>
+          </button>
+        </div>
       </div>
 
       {/* Empty State */}
