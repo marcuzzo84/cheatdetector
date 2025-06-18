@@ -11,14 +11,14 @@ interface DataImportModalProps {
 
 const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user, userProfile, isAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState<'live' | 'pgn'>('pgn');
+  const [activeTab, setActiveTab] = useState<'live' | 'pgn'>('live');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showPGNModal, setShowPGNModal] = useState(false);
 
-  // Live import state (for premium users)
+  // Live import state
   const [liveImport, setLiveImport] = useState({
     username: '',
     site: 'chess.com' as 'chess.com' | 'lichess',
@@ -36,7 +36,7 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
 
     setLoading(true);
     setError('');
-    setProgress('Calling Supabase Edge Function...');
+    setProgress('Calling Chess.com/Lichess API...');
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -67,7 +67,7 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
       setProgress('');
       onSuccess?.();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to import via Edge Function');
+      setError(err instanceof Error ? err.message : 'Failed to import via API');
       setProgress('');
     } finally {
       setLoading(false);
@@ -85,7 +85,7 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
 
     setLoading(true);
     setError('');
-    setProgress('Importing demo data via Edge Functions...');
+    setProgress('Importing demo data from Chess.com and Lichess...');
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -94,7 +94,7 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
 
       for (let i = 0; i < demoPlayers.length; i++) {
         const player = demoPlayers[i];
-        setProgress(`Importing ${player.username} (${i + 1}/${demoPlayers.length})...`);
+        setProgress(`Importing ${player.username} from ${player.site} (${i + 1}/${demoPlayers.length})...`);
 
         try {
           const response = await fetch(`${supabaseUrl}/functions/v1/import-games`, {
@@ -121,7 +121,7 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
           errors.push(`${player.username}: ${err instanceof Error ? err.message : 'Unknown error'}`);
         }
 
-        // Add delay between requests
+        // Add delay between requests to respect rate limits
         if (i < demoPlayers.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
@@ -187,6 +187,18 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
             {/* Tabs */}
             <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6">
               <button
+                onClick={() => setActiveTab('live')}
+                className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                  activeTab === 'live'
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <Cloud className="w-4 h-4" />
+                <span>Live Import</span>
+                <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">API</span>
+              </button>
+              <button
                 onClick={() => setActiveTab('pgn')}
                 className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
                   activeTab === 'pgn'
@@ -197,18 +209,6 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
                 <FileText className="w-4 h-4" />
                 <span>PGN Upload</span>
                 <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">Free</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('live')}
-                className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                  activeTab === 'live'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900'
-                }`}
-              >
-                <Cloud className="w-4 h-4" />
-                <span>Live Import</span>
-                <Crown className="w-3 h-3 text-yellow-500" />
               </button>
             </div>
 
@@ -236,6 +236,136 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
                 <div className="flex items-center">
                   <Loader2 className="w-4 h-4 text-blue-500 mr-2 animate-spin" />
                   <span className="text-sm text-blue-700">{progress}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Live Import Tab */}
+            {activeTab === 'live' && (
+              <div className="space-y-6">
+                <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6">
+                  <div className="flex items-start space-x-4">
+                    <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
+                      <Cloud className="w-6 h-6 text-white" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-lg font-medium text-gray-900 mb-2">Live API Import</h4>
+                      <p className="text-gray-600 mb-4">
+                        Directly fetch games from Chess.com and Lichess APIs with automatic analysis and duplicate detection.
+                      </p>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Real-time Import</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Automatic Analysis</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Duplicate Prevention</span>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500" />
+                          <span>Rate Limited & Secure</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Username
+                    </label>
+                    <input
+                      type="text"
+                      value={liveImport.username}
+                      onChange={(e) => setLiveImport({ ...liveImport, username: e.target.value })}
+                      placeholder="e.g., hikaru, magnuscarlsen"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={loading}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Site
+                    </label>
+                    <select
+                      value={liveImport.site}
+                      onChange={(e) => setLiveImport({ ...liveImport, site: e.target.value as 'chess.com' | 'lichess' })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={loading}
+                    >
+                      <option value="chess.com">Chess.com</option>
+                      <option value="lichess">Lichess</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Game Limit
+                    </label>
+                    <input
+                      type="number"
+                      value={liveImport.limit}
+                      onChange={(e) => setLiveImport({ ...liveImport, limit: parseInt(e.target.value) })}
+                      min="1"
+                      max="100"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={loading}
+                    />
+                  </div>
+                </div>
+
+                <div className="bg-green-50 border border-green-200 rounded-md p-4">
+                  <div className="flex items-start space-x-2">
+                    <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-medium text-green-800">Production-Ready Import</h4>
+                      <p className="text-sm text-green-700 mt-1">
+                        This Edge Function handles authentication, rate limiting, duplicate detection, and cursor tracking automatically.
+                        Perfect for production use with proper error handling and resumable imports.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={handleClose}
+                    disabled={loading}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleLiveImport}
+                    disabled={loading || !liveImport.username.trim()}
+                    className="flex items-center space-x-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Cloud className="w-4 h-4" />
+                    )}
+                    <span>{loading ? 'Importing...' : 'Import via Live API'}</span>
+                  </button>
+                  <button
+                    onClick={handleDemoDataImport}
+                    disabled={loading}
+                    className="flex items-center space-x-2 px-6 py-2 bg-gradient-to-r from-green-600 to-blue-600 text-white rounded-md hover:from-green-700 hover:to-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {loading ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Zap className="w-4 h-4" />
+                    )}
+                    <span>{loading ? 'Importing...' : 'Import Demo Data'}</span>
+                  </button>
                 </div>
               </div>
             )}
@@ -313,181 +443,6 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
               </div>
             )}
 
-            {/* Live Import Tab */}
-            {activeTab === 'live' && (
-              <div className="space-y-6">
-                {!hasPremiumAccess && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                    <div className="flex items-start space-x-3">
-                      <Crown className="w-5 h-5 text-yellow-600 mt-0.5" />
-                      <div>
-                        <h4 className="text-sm font-medium text-yellow-900">Premium Feature</h4>
-                        <p className="text-sm text-yellow-700 mt-1">
-                          Live import from Chess.com and Lichess APIs is available for premium members. 
-                          Standard users can upload PGN files using the "PGN Upload" tab.
-                        </p>
-                        <div className="mt-3">
-                          <button
-                            onClick={() => setActiveTab('pgn')}
-                            className="text-sm bg-yellow-100 text-yellow-800 px-3 py-1 rounded-md hover:bg-yellow-200 transition-colors"
-                          >
-                            Try PGN Upload Instead
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                <div className={`bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 ${!hasPremiumAccess ? 'opacity-50' : ''}`}>
-                  <div className="flex items-start space-x-4">
-                    <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg flex items-center justify-center">
-                      <Cloud className="w-6 h-6 text-white" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-lg font-medium text-gray-900 mb-2">Live API Import</h4>
-                      <p className="text-gray-600 mb-4">
-                        Directly fetch games from Chess.com and Lichess APIs with automatic analysis and duplicate detection.
-                      </p>
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div className="flex items-center space-x-2">
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span>Real-time Import</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span>Automatic Analysis</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span>Duplicate Prevention</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <CheckCircle className="w-4 h-4 text-green-500" />
-                          <span>Rate Limited & Secure</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {hasPremiumAccess && (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Username
-                        </label>
-                        <input
-                          type="text"
-                          value={liveImport.username}
-                          onChange={(e) => setLiveImport({ ...liveImport, username: e.target.value })}
-                          placeholder="e.g., hikaru, magnuscarlsen"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          disabled={loading}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Site
-                        </label>
-                        <select
-                          value={liveImport.site}
-                          onChange={(e) => setLiveImport({ ...liveImport, site: e.target.value as 'chess.com' | 'lichess' })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          disabled={loading}
-                        >
-                          <option value="chess.com">Chess.com</option>
-                          <option value="lichess">Lichess</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Game Limit
-                        </label>
-                        <input
-                          type="number"
-                          value={liveImport.limit}
-                          onChange={(e) => setLiveImport({ ...liveImport, limit: parseInt(e.target.value) })}
-                          min="1"
-                          max="100"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          disabled={loading}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="bg-green-50 border border-green-200 rounded-md p-4">
-                      <div className="flex items-start space-x-2">
-                        <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
-                        <div>
-                          <h4 className="text-sm font-medium text-green-800">Production-Ready Import</h4>
-                          <p className="text-sm text-green-700 mt-1">
-                            This Edge Function handles authentication, rate limiting, duplicate detection, and cursor tracking automatically.
-                            Perfect for production use with proper error handling and resumable imports.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end space-x-3">
-                      <button
-                        onClick={handleClose}
-                        disabled={loading}
-                        className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors disabled:opacity-50"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        onClick={handleLiveImport}
-                        disabled={loading || !liveImport.username.trim()}
-                        className="flex items-center space-x-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50"
-                      >
-                        {loading ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Cloud className="w-4 h-4" />
-                        )}
-                        <span>{loading ? 'Importing...' : 'Import via Live API'}</span>
-                      </button>
-                      <button
-                        onClick={handleDemoDataImport}
-                        disabled={loading}
-                        className="flex items-center space-x-2 px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-md hover:from-blue-700 hover:to-purple-700 transition-colors disabled:opacity-50"
-                      >
-                        {loading ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Zap className="w-4 h-4" />
-                        )}
-                        <span>{loading ? 'Importing...' : 'Import Demo Data'}</span>
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {!hasPremiumAccess && (
-                  <div className="flex justify-end space-x-3">
-                    <button
-                      onClick={handleClose}
-                      className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      disabled
-                      className="flex items-center space-x-2 px-6 py-2 bg-gray-400 text-white rounded-md cursor-not-allowed opacity-50"
-                    >
-                      <Crown className="w-4 h-4" />
-                      <span>Premium Required</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Feature Comparison */}
             <div className="mt-6 p-4 bg-gray-50 rounded-lg">
               <div className="flex items-start space-x-3">
@@ -496,6 +451,16 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
                   <h4 className="text-sm font-medium text-gray-900">Import Method Comparison</h4>
                   <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                     <div>
+                      <p className="font-medium text-blue-700">⚡ Live API Import</p>
+                      <ul className="text-gray-600 mt-1 space-y-1">
+                        <li>• Direct API integration</li>
+                        <li>• Real-time game fetching</li>
+                        <li>• Advanced analysis features</li>
+                        <li>• Automatic updates</li>
+                        <li>• Rate limiting handled</li>
+                      </ul>
+                    </div>
+                    <div>
                       <p className="font-medium text-green-700">✓ PGN Upload (Free)</p>
                       <ul className="text-gray-600 mt-1 space-y-1">
                         <li>• Upload your own game files</li>
@@ -503,16 +468,6 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
                         <li>• No API rate limits</li>
                         <li>• Basic analysis included</li>
                         <li>• Available to all users</li>
-                      </ul>
-                    </div>
-                    <div>
-                      <p className="font-medium text-purple-700">⭐ Live Import (Premium)</p>
-                      <ul className="text-gray-600 mt-1 space-y-1">
-                        <li>• Direct API integration</li>
-                        <li>• Real-time game fetching</li>
-                        <li>• Advanced analysis features</li>
-                        <li>• Automatic updates</li>
-                        <li>• Premium subscription required</li>
                       </ul>
                     </div>
                   </div>

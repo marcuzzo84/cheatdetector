@@ -44,27 +44,40 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
   const parsePGNContent = (content: string) => {
     try {
       setProgress('Parsing PGN content...');
+      setError('');
       const games: ParsedGame[] = [];
       
-      // Split content by double newlines to separate games
-      const gameBlocks = content.split(/\n\s*\n\s*\n/).filter(block => block.trim());
+      // Clean up the content first
+      const cleanContent = content
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .trim();
+
+      // Split by double newlines first, then try other methods
+      let gameBlocks = cleanContent.split(/\n\s*\n\s*\n/).filter(block => block.trim());
       
-      // If no double newlines found, try splitting by [Event
-      let finalBlocks = gameBlocks;
+      // If no triple newlines, try double newlines
       if (gameBlocks.length === 1) {
-        finalBlocks = content.split(/(?=\[Event)/g).filter(block => block.trim());
+        gameBlocks = cleanContent.split(/\n\s*\n/).filter(block => block.trim());
+      }
+      
+      // If still one block, try splitting by [Event
+      if (gameBlocks.length === 1) {
+        gameBlocks = cleanContent.split(/(?=\[Event)/g).filter(block => block.trim());
       }
 
-      console.log(`Found ${finalBlocks.length} potential game blocks`);
+      console.log(`Found ${gameBlocks.length} potential game blocks`);
 
-      for (let blockIndex = 0; blockIndex < finalBlocks.length; blockIndex++) {
-        const block = finalBlocks[blockIndex].trim();
+      for (let blockIndex = 0; blockIndex < gameBlocks.length; blockIndex++) {
+        const block = gameBlocks[blockIndex].trim();
         if (!block) continue;
 
         try {
           const game = parseSingleGame(block);
           if (game && game.white && game.black && game.moves) {
             games.push(game);
+          } else {
+            console.warn(`Game ${blockIndex + 1}: Missing required fields`);
           }
         } catch (gameError) {
           console.warn(`Error parsing game ${blockIndex + 1}:`, gameError);
@@ -98,8 +111,8 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
           const [, key, value] = match;
           headers[key.toLowerCase()] = value;
         }
-      } else if (line && !line.startsWith('[')) {
-        // This is moves content
+      } else if (line && !line.startsWith('[') && !line.startsWith('%')) {
+        // This is moves content (skip comments starting with %)
         inMoves = true;
         moveLines.push(line);
       }
@@ -114,7 +127,14 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       .replace(/\s+/g, ' ')
       .replace(/\{[^}]*\}/g, '') // Remove comments
       .replace(/\([^)]*\)/g, '') // Remove variations
+      .replace(/\$\d+/g, '') // Remove NAG annotations
+      .replace(/[?!]+/g, '') // Remove move annotations
       .trim();
+
+    // Validate that we have actual moves
+    if (!moves || moves.length < 10) {
+      return null;
+    }
 
     return {
       white: headers.white || 'Unknown',
@@ -239,7 +259,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
               continue; // Skip this game instead of failing
             }
 
-            // Create game record
+            // Create game record with unique external ID
             const { data: gameRecord, error: gameError } = await supabase
               .from('games')
               .insert({
