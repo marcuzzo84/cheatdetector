@@ -1,10 +1,15 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Loader2, Wifi, Database } from 'lucide-react';
+import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Loader2, Wifi, Database, Lock } from 'lucide-react';
 import { useLiveSuspiciousScores } from '../hooks/useLiveQueries';
+import { useAuth } from '../contexts/AuthContext';
 
 const LiveSuspiciousScoresTable: React.FC = () => {
   const { scores, loading, error } = useLiveSuspiciousScores();
+  const { userProfile, isAdmin } = useAuth();
+  
+  // Check if user has premium access
+  const hasPremiumAccess = isAdmin || userProfile?.role === 'premium' || userProfile?.role === 'pro';
 
   const getSuspicionBadge = (level: number) => {
     if (level >= 70) {
@@ -119,7 +124,15 @@ const LiveSuspiciousScoresTable: React.FC = () => {
       <div className="px-6 py-4 border-b border-gray-200">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">🚨 Latest high-risk games</h3>
+            <div className="flex items-center space-x-2">
+              <h3 className="text-lg font-semibold text-gray-900">🚨 Latest high-risk games</h3>
+              {!hasPremiumAccess && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                  <Lock className="w-3 h-3 mr-1" />
+                  Limited in Free Plan
+                </span>
+              )}
+            </div>
             <p className="text-sm text-gray-600">Games with suspicion level ≥ 80% ({scores.length} found)</p>
           </div>
           <div className="flex items-center space-x-2">
@@ -132,7 +145,7 @@ const LiveSuspiciousScoresTable: React.FC = () => {
         </div>
       </div>
       
-      {scores.length === 0 ? (
+      {scores.length === 0 && (
         <div className="p-6 text-center">
           <div className="text-gray-400 mb-2">
             <Database className="w-8 h-8 mx-auto" />
@@ -140,7 +153,9 @@ const LiveSuspiciousScoresTable: React.FC = () => {
           <p className="text-gray-600">No high-risk games found</p>
           <p className="text-sm text-gray-500 mt-1">Import some games to see suspicious activity</p>
         </div>
-      ) : (
+      )}
+
+      {scores.length > 0 && (
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -172,7 +187,7 @@ const LiveSuspiciousScoresTable: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {scores.map((score) => (
+              {scores.slice(0, hasPremiumAccess ? scores.length : 3).map((score) => (
                 <tr key={score.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <Link 
@@ -247,6 +262,25 @@ const LiveSuspiciousScoresTable: React.FC = () => {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Upgrade Banner for Free Users */}
+      {!hasPremiumAccess && scores.length > 3 && (
+        <div className="p-4 bg-gradient-to-r from-blue-50 to-purple-50 border-t border-blue-200">
+          <div className="flex items-start space-x-3">
+            <Lock className="w-5 h-5 text-blue-600 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-medium text-blue-900">Premium Feature</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                <strong>{scores.length - 3} more high-risk games</strong> are available with Premium or Pro subscription.
+                Upgrade to see all suspicious games and get access to advanced analytics.
+              </p>
+              <button className="mt-2 inline-flex items-center px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                Upgrade Now
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

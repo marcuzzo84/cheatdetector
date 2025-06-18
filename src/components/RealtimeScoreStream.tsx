@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Wifi, WifiOff, Shield, AlertTriangle, CheckCircle, Eye, ExternalLink } from 'lucide-react';
+import { Wifi, WifiOff, Shield, AlertTriangle, CheckCircle, Eye, ExternalLink, Lock, Star } from 'lucide-react';
 import { useRealtimeScores, type ScoreWithPlayer } from '../hooks/useRealtimeScores';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
 
 const RealtimeScoreStream: React.FC = () => {
   const { 
@@ -13,10 +14,15 @@ const RealtimeScoreStream: React.FC = () => {
     signOut 
   } = useRealtimeScores();
   
+  const { userProfile, isAdmin } = useAuth();
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [email, setEmail] = useState('admin@fairplay-scout.com');
   const [password, setPassword] = useState('');
   const [isAuthenticating, setIsAuthenticating] = useState(false);
+
+  // Check if user has premium access
+  const hasPremiumAccess = isAdmin || userProfile?.role === 'premium' || userProfile?.role === 'pro';
 
   const handleAuthenticate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,19 +79,13 @@ const RealtimeScoreStream: React.FC = () => {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-3">
-            <h3 className="text-lg font-semibold text-gray-900">🔴 Live Score Stream</h3>
             <div className="flex items-center space-x-2">
-              {isConnected ? (
-                <div className="flex items-center space-x-1 text-green-600">
-                  <Wifi className="w-4 h-4" />
-                  <span className="text-sm font-medium">Connected</span>
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                </div>
-              ) : (
-                <div className="flex items-center space-x-1 text-red-600">
-                  <WifiOff className="w-4 h-4" />
-                  <span className="text-sm font-medium">Disconnected</span>
-                </div>
+              <h3 className="text-lg font-semibold text-gray-900">🔴 Live Score Stream</h3>
+              {!hasPremiumAccess && (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                  <Lock className="w-3 h-3 mr-1" />
+                  Premium Feature
+                </span>
               )}
             </div>
           </div>
@@ -106,11 +106,20 @@ const RealtimeScoreStream: React.FC = () => {
               </div>
             ) : (
               <button
-                onClick={() => setShowAuthModal(true)}
+                onClick={() => hasPremiumAccess ? setShowAuthModal(true) : setShowUpgradeModal(true)}
                 className="flex items-center space-x-2 px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
               >
-                <Shield className="w-4 h-4" />
-                <span>Authenticate</span>
+                {hasPremiumAccess ? (
+                  <>
+                    <Shield className="w-4 h-4" />
+                    <span>Authenticate</span>
+                  </>
+                ) : (
+                  <>
+                    <Star className="w-4 h-4" />
+                    <span>Upgrade to Premium</span>
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -125,7 +134,43 @@ const RealtimeScoreStream: React.FC = () => {
           </div>
         )}
 
-        {!isAuthenticated && (
+        {!hasPremiumAccess && (
+          <div className="mb-4 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-md">
+            <div className="flex items-start space-x-3">
+              <Star className="w-5 h-5 text-blue-600 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-medium text-blue-800">Premium Feature</h4>
+                <p className="text-sm text-blue-700 mt-1">
+                  Real-time score streaming is available for Premium and Pro subscribers. 
+                  Upgrade your plan to receive instant notifications when suspicious games are detected.
+                </p>
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <span className="text-sm text-blue-700">Instant suspicious game alerts</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <span className="text-sm text-blue-700">Live analysis updates</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                    <span className="text-sm text-blue-700">Real-time dashboard metrics</span>
+                  </div>
+                  <button
+                    onClick={() => setShowUpgradeModal(true)}
+                    className="mt-2 inline-flex items-center px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm"
+                  >
+                    <Star className="w-4 h-4 mr-1" />
+                    Upgrade to Premium
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {hasPremiumAccess && !isAuthenticated && (
           <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
             <div className="flex items-center space-x-2">
               <Shield className="w-5 h-5 text-yellow-600" />
@@ -137,7 +182,7 @@ const RealtimeScoreStream: React.FC = () => {
           </div>
         )}
 
-        {isAuthenticated && isConnected && !latestScore && (
+        {hasPremiumAccess && isAuthenticated && isConnected && !latestScore && (
           <div className="text-center py-8">
             <div className="text-gray-400 mb-2">
               <Wifi className="w-8 h-8 mx-auto" />
@@ -147,7 +192,7 @@ const RealtimeScoreStream: React.FC = () => {
           </div>
         )}
 
-        {latestScore && (
+        {hasPremiumAccess && latestScore && (
           <div className="border border-gray-200 rounded-lg p-4 bg-gradient-to-r from-blue-50 to-purple-50">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center space-x-2">
@@ -243,6 +288,33 @@ const RealtimeScoreStream: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Connection Status */}
+        <div className="mt-4 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            {isConnected ? (
+              <div className="flex items-center space-x-1 text-green-600">
+                <Wifi className="w-4 h-4" />
+                <span className="text-sm font-medium">Connected</span>
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-1 text-red-600">
+                <WifiOff className="w-4 h-4" />
+                <span className="text-sm font-medium">Disconnected</span>
+              </div>
+            )}
+          </div>
+          
+          {hasPremiumAccess && (
+            <div className="text-xs text-gray-500">
+              <span className="inline-flex items-center px-2 py-1 rounded-full bg-green-100 text-green-800">
+                <Star className="w-3 h-3 mr-1" />
+                Premium Feature
+              </span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Authentication Modal */}
@@ -315,6 +387,146 @@ const RealtimeScoreStream: React.FC = () => {
                   Email: admin@fairplay-scout.com<br />
                   Password: (enter any password for demo)
                 </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upgrade Modal */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-3xl shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gradient-to-r from-purple-600 to-blue-600 rounded-lg flex items-center justify-center">
+                    <Star className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">Upgrade to Premium</h3>
+                    <p className="text-sm text-gray-600">Unlock real-time updates and advanced features</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowUpgradeModal(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <Wifi className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-medium text-blue-900">Real-time Score Streaming</h4>
+                      <p className="text-sm text-blue-700 mt-1">
+                        Get instant notifications when suspicious games are detected. Premium subscribers receive:
+                      </p>
+                      <ul className="mt-2 space-y-2 text-sm text-blue-700">
+                        <li className="flex items-start space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                          <span>Live updates as games are analyzed</span>
+                        </li>
+                        <li className="flex items-start space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                          <span>Instant suspicious game alerts</span>
+                        </li>
+                        <li className="flex items-start space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                          <span>Real-time dashboard metrics</span>
+                        </li>
+                        <li className="flex items-start space-x-2">
+                          <CheckCircle className="w-4 h-4 text-green-500 mt-0.5" />
+                          <span>WebSocket connection for instant updates</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="border border-gray-200 rounded-lg p-6">
+                    <div className="text-center">
+                      <h4 className="text-lg font-medium text-gray-900 mb-2">Premium</h4>
+                      <div className="text-3xl font-bold text-gray-900 mb-4">$9<span className="text-sm font-normal text-gray-500">/month</span></div>
+                      <div className="space-y-3 text-sm text-gray-600">
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Live API imports</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Real-time updates</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Up to 1,000 games/month</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Advanced analytics</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Priority support</span>
+                        </div>
+                      </div>
+                      <div className="mt-6">
+                        <button className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors font-medium">
+                          Upgrade to Premium
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="border border-gray-200 rounded-lg p-6">
+                    <div className="text-center">
+                      <h4 className="text-lg font-medium text-gray-900 mb-2">Pro</h4>
+                      <div className="text-3xl font-bold text-gray-900 mb-4">$19<span className="text-sm font-normal text-gray-500">/month</span></div>
+                      <div className="space-y-3 text-sm text-gray-600">
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Everything in Premium</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Unlimited games</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Custom analysis models</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>API access</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>White-label options</span>
+                        </div>
+                      </div>
+                      <div className="mt-6">
+                        <button className="w-full bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors font-medium">
+                          Upgrade to Pro
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setShowUpgradeModal(false)}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
+                  >
+                    Maybe Later
+                  </button>
+                </div>
               </div>
             </div>
           </div>

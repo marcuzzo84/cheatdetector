@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, AlertTriangle, CheckCircle, Clock, Zap, Database, Wifi } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle, Clock, Zap, Database, Wifi, Lock, Star } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface RateLimitStatus {
   site: 'chess.com' | 'lichess';
@@ -17,9 +18,13 @@ interface RateLimitMonitorProps {
 }
 
 const RateLimitMonitor: React.FC<RateLimitMonitorProps> = ({ onStatusChange }) => {
+  const { userProfile, isAdmin } = useAuth();
   const [rateLimitStatus, setRateLimitStatus] = useState<RateLimitStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+
+  // Check if user has premium access
+  const hasPremiumAccess = isAdmin || userProfile?.role === 'premium' || userProfile?.role === 'pro';
 
   useEffect(() => {
     fetchRateLimitStatus();
@@ -37,9 +42,9 @@ const RateLimitMonitor: React.FC<RateLimitMonitorProps> = ({ onStatusChange }) =
         {
           site: 'chess.com',
           requestsUsed: 45,
-          requestsLimit: 3600,
+          requestsLimit: hasPremiumAccess ? 3600 : 600,
           dataUsed: 2.1 * 1024 * 1024, // 2.1 MB
-          dataLimit: 10 * 1024 * 1024, // 10 MB
+          dataLimit: hasPremiumAccess ? 10 * 1024 * 1024 : 2 * 1024 * 1024, // 10 MB for premium, 2 MB for free
           resetTime: Date.now() + 3600000,
           healthy: true,
           recommendations: []
@@ -47,12 +52,12 @@ const RateLimitMonitor: React.FC<RateLimitMonitorProps> = ({ onStatusChange }) =
         {
           site: 'lichess',
           requestsUsed: 234,
-          requestsLimit: 54000,
+          requestsLimit: hasPremiumAccess ? 54000 : 10000,
           dataUsed: 3.8 * 1024 * 1024, // 3.8 MB
-          dataLimit: 5 * 1024 * 1024, // 5 MB
+          dataLimit: hasPremiumAccess ? 5 * 1024 * 1024 : 1 * 1024 * 1024, // 5 MB for premium, 1 MB for free
           resetTime: Date.now() + 60000,
           healthy: true,
-          recommendations: ['Approaching data quota limit']
+          recommendations: hasPremiumAccess ? [] : ['Upgrade to Premium for higher limits']
         }
       ];
 
@@ -123,12 +128,42 @@ const RateLimitMonitor: React.FC<RateLimitMonitorProps> = ({ onStatusChange }) =
         <div className="flex items-center space-x-2">
           <Zap className="w-5 h-5 text-blue-600" />
           <h3 className="text-lg font-semibold text-gray-900">API Rate Limits</h3>
+          {!hasPremiumAccess && (
+            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+              <Lock className="w-3 h-3 mr-1" />
+              Limited in Free Plan
+            </span>
+          )}
         </div>
         <div className="flex items-center space-x-2 text-sm text-gray-500">
           <Wifi className="w-4 h-4" />
           <span>Last updated: {lastUpdate?.toLocaleTimeString()}</span>
         </div>
       </div>
+
+      {!hasPremiumAccess && (
+        <div className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <Star className="w-5 h-5 text-blue-600 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-medium text-blue-900">Premium Rate Limits Available</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                Upgrade to <strong>Premium</strong> or <strong>Pro</strong> to get higher API rate limits:
+              </p>
+              <ul className="text-sm text-blue-700 mt-2 space-y-1">
+                <li>• 6x higher request limits on Chess.com API</li>
+                <li>• 5x higher request limits on Lichess API</li>
+                <li>• 5x higher data transfer allowance</li>
+                <li>• Priority API access during peak times</li>
+              </ul>
+              <button className="mt-3 inline-flex items-center px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors text-sm">
+                <Star className="w-3 h-3 mr-1" />
+                Upgrade Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="space-y-6">
         {rateLimitStatus.map((status) => (
@@ -150,9 +185,16 @@ const RateLimitMonitor: React.FC<RateLimitMonitorProps> = ({ onStatusChange }) =
             <div className="mb-4">
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-gray-600">Requests</span>
-                <span className="font-medium">
-                  {status.requestsUsed.toLocaleString()} / {status.requestsLimit.toLocaleString()}
-                </span>
+                <div className="flex items-center space-x-2">
+                  <span className="font-medium">
+                    {status.requestsUsed.toLocaleString()} / {status.requestsLimit.toLocaleString()}
+                  </span>
+                  {!hasPremiumAccess && (
+                    <span className="text-xs text-blue-600">
+                      <Lock className="w-3 h-3 inline" /> Limited
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div 
@@ -171,9 +213,16 @@ const RateLimitMonitor: React.FC<RateLimitMonitorProps> = ({ onStatusChange }) =
             <div className="mb-4">
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-gray-600">Data Transfer</span>
-                <span className="font-medium">
-                  {formatBytes(status.dataUsed)} / {formatBytes(status.dataLimit)}
-                </span>
+                <div className="flex items-center space-x-2">
+                  <span className="font-medium">
+                    {formatBytes(status.dataUsed)} / {formatBytes(status.dataLimit)}
+                  </span>
+                  {!hasPremiumAccess && (
+                    <span className="text-xs text-blue-600">
+                      <Lock className="w-3 h-3 inline" /> Limited
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-2">
                 <div 
@@ -196,7 +245,7 @@ const RateLimitMonitor: React.FC<RateLimitMonitorProps> = ({ onStatusChange }) =
                   <>
                     <div>
                       <span className="text-gray-600">Rate:</span>
-                      <p className="font-medium">1 req/sec</p>
+                      <p className="font-medium">1 req/sec {hasPremiumAccess && "(Premium)"}</p>
                     </div>
                     <div>
                       <span className="text-gray-600">Type:</span>
@@ -207,11 +256,11 @@ const RateLimitMonitor: React.FC<RateLimitMonitorProps> = ({ onStatusChange }) =
                   <>
                     <div>
                       <span className="text-gray-600">Rate:</span>
-                      <p className="font-medium">20 req/sec</p>
+                      <p className="font-medium">{hasPremiumAccess ? "20" : "5"} req/sec {hasPremiumAccess && "(Premium)"}</p>
                     </div>
                     <div>
                       <span className="text-gray-600">Data:</span>
-                      <p className="font-medium">15 MB/min</p>
+                      <p className="font-medium">{hasPremiumAccess ? "15" : "3"} MB/min {hasPremiumAccess && "(Premium)"}</p>
                     </div>
                   </>
                 )}
@@ -249,8 +298,16 @@ const RateLimitMonitor: React.FC<RateLimitMonitorProps> = ({ onStatusChange }) =
             <h4 className="text-sm font-medium text-blue-900">Rate Limiting Implementation</h4>
             <p className="text-sm text-blue-700 mt-1">
               <strong>Chess.com:</strong> pThrottle 1 req/s with burst protection<br />
-              <strong>Lichess:</strong> 15 req/s (conservative), 5MB body limit, single fetch ≤300 games
+              <strong>Lichess:</strong> {hasPremiumAccess ? "15" : "5"} req/s, {hasPremiumAccess ? "5MB" : "1MB"} body limit, single fetch ≤{hasPremiumAccess ? "300" : "100"} games
             </p>
+            {!hasPremiumAccess && (
+              <div className="mt-2 flex items-center space-x-2">
+                <Lock className="w-4 h-4 text-blue-600" />
+                <p className="text-sm font-medium text-blue-700">
+                  Premium users get higher rate limits and priority access
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>

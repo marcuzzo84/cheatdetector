@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown, LogOut, Download, Calendar, Power } from 'lucide-react';
+import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown, LogOut, Download, Calendar, Power, Crown, Star, Zap } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface LayoutProps {
@@ -83,13 +83,44 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
-  // Get user role display
-  const getUserRole = () => {
-    if (userProfile?.role) {
-      return userProfile.role.charAt(0).toUpperCase() + userProfile.role.slice(1);
+  // Get user role display and tier info
+  const getUserRoleInfo = () => {
+    const role = userProfile?.role || 'user';
+    
+    switch (role) {
+      case 'admin':
+      case 'administrator':
+        return {
+          display: 'Administrator',
+          tier: 'Admin',
+          color: 'purple',
+          icon: Crown
+        };
+      case 'premium':
+        return {
+          display: 'Premium User',
+          tier: 'Premium',
+          color: 'gold',
+          icon: Star
+        };
+      case 'pro':
+        return {
+          display: 'Pro User',
+          tier: 'Pro',
+          color: 'blue',
+          icon: Zap
+        };
+      default:
+        return {
+          display: 'Free User',
+          tier: 'Free',
+          color: 'gray',
+          icon: User
+        };
     }
-    return 'User';
   };
+
+  const roleInfo = getUserRoleInfo();
 
   return (
     <div className={`min-h-screen ${darkMode ? 'dark bg-gray-900' : 'bg-gray-50'}`}>
@@ -131,14 +162,21 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 className="flex items-center space-x-2 p-2 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors"
               >
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                  isAdmin ? 'bg-purple-600' : 'bg-blue-600'
+                  roleInfo.color === 'purple' ? 'bg-purple-600' :
+                  roleInfo.color === 'gold' ? 'bg-yellow-500' :
+                  roleInfo.color === 'blue' ? 'bg-blue-600' : 'bg-gray-600'
                 }`}>
                   <span className="text-xs font-medium text-white">{getUserInitials()}</span>
                 </div>
                 <div className="hidden sm:block text-left">
                   <div className="text-sm font-medium">{getUserDisplayName()}</div>
-                  <div className={`text-xs ${isAdmin ? 'text-purple-600' : 'text-gray-500'}`}>
-                    {getUserRole()}
+                  <div className={`text-xs flex items-center space-x-1 ${
+                    roleInfo.color === 'purple' ? 'text-purple-600' :
+                    roleInfo.color === 'gold' ? 'text-yellow-600' :
+                    roleInfo.color === 'blue' ? 'text-blue-600' : 'text-gray-500'
+                  }`}>
+                    <roleInfo.icon className="w-3 h-3" />
+                    <span>{roleInfo.tier}</span>
                   </div>
                 </div>
                 <ChevronDown className="h-4 w-4" />
@@ -150,16 +188,36 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     <div className="px-4 py-3 text-sm text-gray-700 border-b border-gray-100">
                       <p className="font-medium">{getUserDisplayName()}</p>
                       <p className="text-gray-500">{user?.email}</p>
-                      <div className="flex items-center mt-1">
+                      <div className="flex items-center mt-2">
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          isAdmin 
-                            ? 'bg-purple-100 text-purple-800' 
-                            : 'bg-blue-100 text-blue-800'
+                          roleInfo.color === 'purple' ? 'bg-purple-100 text-purple-800' :
+                          roleInfo.color === 'gold' ? 'bg-yellow-100 text-yellow-800' :
+                          roleInfo.color === 'blue' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'
                         }`}>
-                          {getUserRole()}
+                          <roleInfo.icon className="w-3 h-3 mr-1" />
+                          {roleInfo.display}
                         </span>
                       </div>
                     </div>
+
+                    {/* Subscription Status */}
+                    {roleInfo.tier === 'Free' && (
+                      <div className="px-4 py-3 border-b border-gray-100">
+                        <div className="bg-blue-50 rounded-lg p-3">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <Star className="w-4 h-4 text-blue-600" />
+                            <span className="text-sm font-medium text-blue-900">Upgrade Available</span>
+                          </div>
+                          <p className="text-xs text-blue-700 mb-2">
+                            Unlock live API imports and advanced features
+                          </p>
+                          <button className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 transition-colors">
+                            View Plans
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     
                     {/* Show Settings link only for admins */}
                     {isAdmin && (
@@ -286,17 +344,39 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             {/* Role indicator in sidebar */}
             <div className="p-4 border-t border-gray-200">
               <div className={`flex items-center space-x-2 p-2 rounded-lg ${
-                isAdmin ? 'bg-purple-50' : 'bg-blue-50'
+                roleInfo.color === 'purple' ? 'bg-purple-50' :
+                roleInfo.color === 'gold' ? 'bg-yellow-50' :
+                roleInfo.color === 'blue' ? 'bg-blue-50' : 'bg-gray-50'
               }`}>
                 <div className={`w-2 h-2 rounded-full ${
-                  isAdmin ? 'bg-purple-500' : 'bg-blue-500'
+                  roleInfo.color === 'purple' ? 'bg-purple-500' :
+                  roleInfo.color === 'gold' ? 'bg-yellow-500' :
+                  roleInfo.color === 'blue' ? 'bg-blue-500' : 'bg-gray-500'
                 }`}></div>
                 <span className={`text-xs font-medium ${
-                  isAdmin ? 'text-purple-700' : 'text-blue-700'
+                  roleInfo.color === 'purple' ? 'text-purple-700' :
+                  roleInfo.color === 'gold' ? 'text-yellow-700' :
+                  roleInfo.color === 'blue' ? 'text-blue-700' : 'text-gray-700'
                 }`}>
-                  {getUserRole()} Access
+                  {roleInfo.display}
                 </span>
               </div>
+              
+              {/* Upgrade prompt for free users */}
+              {roleInfo.tier === 'Free' && (
+                <div className="mt-2 p-2 bg-blue-50 rounded-lg">
+                  <div className="flex items-center space-x-2 mb-1">
+                    <Star className="w-3 h-3 text-blue-600" />
+                    <span className="text-xs font-medium text-blue-900">Upgrade Available</span>
+                  </div>
+                  <p className="text-xs text-blue-700 mb-2">
+                    Get live imports & more
+                  </p>
+                  <button className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 transition-colors w-full">
+                    View Plans
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

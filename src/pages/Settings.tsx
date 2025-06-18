@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Save, Upload, Key, Shield, Database, Activity, AlertCircle, CheckCircle, User, Eye, EyeOff, Copy, Plus, Trash2, Edit3, RefreshCw, Calendar, Clock, ArrowLeft } from 'lucide-react';
+import { Save, Upload, Key, Shield, Database, Activity, AlertCircle, CheckCircle, User, Eye, EyeOff, Copy, Plus, Trash2, Edit3, RefreshCw, Calendar, Clock, ArrowLeft, Crown, Star, Zap } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 interface ApiKey {
@@ -100,6 +100,7 @@ const Settings: React.FC = () => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
 
   // System configuration
   const [supabaseUrl, setSupabaseUrl] = useState('https://••••••••••••••••••••.supabase.co');
@@ -223,6 +224,77 @@ const Settings: React.FC = () => {
               You have full administrative privileges. Changes made here affect the entire system and all users. 
               Please exercise caution when modifying system settings.
             </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Subscription Management */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-2">
+            <Star className="w-5 h-5 text-blue-600" />
+            <h3 className="text-lg font-semibold text-gray-900">Subscription Management</h3>
+          </div>
+          <button
+            onClick={() => setShowSubscriptionModal(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+          >
+            <Crown className="w-4 h-4" />
+            <span>Manage Subscriptions</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-4 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <User className="w-5 h-5 text-gray-600" />
+              <span className="font-medium text-gray-900">Free Plan</span>
+            </div>
+            <p className="text-sm text-gray-700 mb-2">Basic access with limited features</p>
+            <div className="text-xs text-gray-600">
+              <p>• PGN file uploads</p>
+              <p>• Basic analysis</p>
+              <p>• 100 games/month</p>
+            </div>
+          </div>
+
+          <div className="p-4 bg-yellow-50 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <Star className="w-5 h-5 text-yellow-600" />
+              <span className="font-medium text-yellow-900">Premium Plan</span>
+            </div>
+            <p className="text-sm text-yellow-700 mb-2">Enhanced features for serious users</p>
+            <div className="text-xs text-yellow-600">
+              <p>• Live API imports</p>
+              <p>• Advanced analytics</p>
+              <p>• 1,000 games/month</p>
+            </div>
+          </div>
+
+          <div className="p-4 bg-blue-50 rounded-lg">
+            <div className="flex items-center space-x-2 mb-2">
+              <Zap className="w-5 h-5 text-blue-600" />
+              <span className="font-medium text-blue-900">Pro Plan</span>
+            </div>
+            <p className="text-sm text-blue-700 mb-2">Full access for professionals</p>
+            <div className="text-xs text-blue-600">
+              <p>• Unlimited games</p>
+              <p>• Custom analysis models</p>
+              <p>• API access & white-label</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+          <div className="flex items-start space-x-2">
+            <Star className="w-5 h-5 text-blue-600 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-medium text-blue-900">Subscription Features</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                Manage user subscription tiers and feature access. Premium and Pro users have access to live API imports, 
+                advanced analytics, and higher usage limits. Free users can still upload PGN files for basic analysis.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -755,6 +827,264 @@ const Settings: React.FC = () => {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Subscription Management Modal */}
+      {showSubscriptionModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg flex items-center justify-center">
+                    <Crown className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">Subscription Management</h3>
+                    <p className="text-sm text-gray-600">Manage user subscription tiers and feature access</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowSubscriptionModal(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Subscription Plans */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {/* Free Plan */}
+                  <div className="border border-gray-200 rounded-lg p-6">
+                    <div className="text-center">
+                      <h4 className="text-lg font-medium text-gray-900 mb-2">Free</h4>
+                      <div className="text-3xl font-bold text-gray-900 mb-4">$0<span className="text-sm font-normal text-gray-500">/month</span></div>
+                      <div className="space-y-3 text-sm text-gray-600">
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>PGN file uploads</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Basic analysis</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Up to 100 games/month</span>
+                        </div>
+                        <div className="flex items-center">
+                          <X className="w-4 h-4 text-gray-400 mr-2" />
+                          <span>Live API imports</span>
+                        </div>
+                        <div className="flex items-center">
+                          <X className="w-4 h-4 text-gray-400 mr-2" />
+                          <span>Advanced analytics</span>
+                        </div>
+                      </div>
+                      <div className="mt-6">
+                        <button className="w-full px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors">
+                          Default Plan
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Premium Plan */}
+                  <div className="border-2 border-blue-500 rounded-lg p-6 relative">
+                    <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                      <span className="bg-blue-500 text-white px-3 py-1 rounded-full text-xs font-medium">Most Popular</span>
+                    </div>
+                    <div className="text-center">
+                      <h4 className="text-lg font-medium text-gray-900 mb-2">Premium</h4>
+                      <div className="text-3xl font-bold text-gray-900 mb-4">$9<span className="text-sm font-normal text-gray-500">/month</span></div>
+                      <div className="space-y-3 text-sm text-gray-600">
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Everything in Free</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Live API imports</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Up to 1,000 games/month</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Advanced analytics</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Priority support</span>
+                        </div>
+                      </div>
+                      <div className="mt-6">
+                        <button className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition-colors font-medium">
+                          Assign to Users
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Pro Plan */}
+                  <div className="border border-gray-200 rounded-lg p-6">
+                    <div className="text-center">
+                      <h4 className="text-lg font-medium text-gray-900 mb-2">Pro</h4>
+                      <div className="text-3xl font-bold text-gray-900 mb-4">$19<span className="text-sm font-normal text-gray-500">/month</span></div>
+                      <div className="space-y-3 text-sm text-gray-600">
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Everything in Premium</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Unlimited games</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>Custom analysis models</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>API access</span>
+                        </div>
+                        <div className="flex items-center">
+                          <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                          <span>White-label options</span>
+                        </div>
+                      </div>
+                      <div className="mt-6">
+                        <button className="w-full bg-purple-600 text-white px-4 py-2 rounded-md hover:bg-purple-700 transition-colors font-medium">
+                          Assign to Users
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* User Subscription Management */}
+                <div className="bg-white border border-gray-200 rounded-lg">
+                  <div className="px-4 py-3 border-b border-gray-200">
+                    <h4 className="font-medium text-gray-900">User Subscription Management</h4>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Plan</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        <tr>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                                <span className="text-xs font-medium text-white">JD</span>
+                              </div>
+                              <div className="ml-3">
+                                <div className="text-sm font-medium text-gray-900">John Doe</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">john@example.com</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                              <Star className="w-3 h-3 mr-1" />
+                              Premium
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              Active
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
+                            <button className="text-red-600 hover:text-red-900">Revoke</button>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center">
+                                <span className="text-xs font-medium text-white">JS</span>
+                              </div>
+                              <div className="ml-3">
+                                <div className="text-sm font-medium text-gray-900">Jane Smith</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">jane@example.com</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                              <Zap className="w-3 h-3 mr-1" />
+                              Pro
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              Active
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button className="text-blue-600 hover:text-blue-900 mr-3">Edit</button>
+                            <button className="text-red-600 hover:text-red-900">Revoke</button>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center">
+                                <span className="text-xs font-medium text-white">RJ</span>
+                              </div>
+                              <div className="ml-3">
+                                <div className="text-sm font-medium text-gray-900">Robert Johnson</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">robert@example.com</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                              Free
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              Active
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <button className="text-blue-600 hover:text-blue-900 mr-3">Upgrade</button>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => setShowSubscriptionModal(false)}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
+                  >
+                    Close
+                  </button>
+                  <button
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
