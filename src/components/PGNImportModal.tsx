@@ -29,7 +29,7 @@ interface ParsedGame {
 
 const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'upload' | 'paste'>('upload');
+  const [activeTab, setActiveTab] = useState<'upload' | 'paste'>('paste');
   const [pgnContent, setPgnContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
@@ -40,12 +40,15 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
   const [playerUsername, setPlayerUsername] = useState('');
   const [selectedSite, setSelectedSite] = useState<'chess.com' | 'lichess'>('chess.com');
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  const parsePGNContent = (content: string) => {
+  const parsePGNContent = async (content: string) => {
+    if (isProcessing) return;
+    
     try {
+      setIsProcessing(true);
       setProgress('Parsing PGN content...');
       setError('');
-      const games: ParsedGame[] = [];
       
       // Clean up the content first
       const cleanContent = content
@@ -59,20 +62,21 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
         return;
       }
 
-      // Split by double newlines first, then try other methods
-      let gameBlocks = cleanContent.split(/\n\s*\n\s*\n/).filter(block => block.trim());
+      // Split games by looking for [Event headers or double newlines
+      let gameBlocks: string[] = [];
       
-      // If no triple newlines, try double newlines
-      if (gameBlocks.length === 1) {
-        gameBlocks = cleanContent.split(/\n\s*\n/).filter(block => block.trim());
-      }
-      
-      // If still one block, try splitting by [Event
-      if (gameBlocks.length === 1) {
+      // First try splitting by [Event headers
+      if (cleanContent.includes('[Event')) {
         gameBlocks = cleanContent.split(/(?=\[Event)/g).filter(block => block.trim());
+      } else {
+        // Fallback to double newlines
+        gameBlocks = cleanContent.split(/\n\s*\n/).filter(block => block.trim());
       }
 
       console.log(`Found ${gameBlocks.length} potential game blocks`);
+
+      const games: ParsedGame[] = [];
+      const parseErrors: string[] = [];
 
       for (let blockIndex = 0; blockIndex < gameBlocks.length; blockIndex++) {
         const block = gameBlocks[blockIndex].trim();
@@ -83,23 +87,37 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
           if (game && game.white && game.black && game.moves) {
             games.push(game);
           } else {
-            console.warn(`Game ${blockIndex + 1}: Missing required fields`);
+            parseErrors.push(`Game ${blockIndex + 1}: Missing required fields (white, black, or moves)`);
           }
         } catch (gameError) {
-          console.warn(`Error parsing game ${blockIndex + 1}:`, gameError);
-          // Continue with other games instead of failing completely
+          parseErrors.push(`Game ${blockIndex + 1}: ${gameError instanceof Error ? gameError.message : 'Parse error'}`);
         }
       }
 
       console.log(`Successfully parsed ${games.length} games`);
-      setParsedGames(games);
-      setShowPreview(true);
-      setSuccess(`Successfully parsed ${games.length} games from PGN content`);
+      
+      if (games.length === 0) {
+        setError('No valid games found in PGN content. Please check the format.');
+        if (parseErrors.length > 0) {
+          console.warn('Parse errors:', parseErrors);
+        }
+      } else {
+        setParsedGames(games);
+        setShowPreview(true);
+        setSuccess(`Successfully parsed ${games.length} games from PGN content`);
+        
+        if (parseErrors.length > 0) {
+          setError(`Parsed ${games.length} games, but ${parseErrors.length} games had errors`);
+        }
+      }
+      
       setProgress('');
     } catch (err) {
       console.error('PGN parsing error:', err);
       setError('Failed to parse PGN content. Please check the format.');
       setProgress('');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -137,8 +155,8 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       .replace(/[?!]+/g, '') // Remove move annotations
       .trim();
 
-    // Validate that we have actual moves
-    if (!moves || moves.length < 10) {
+    // Validate that we have actual moves (should contain numbers and letters)
+    if (!moves || moves.length < 5 || !/\d+\./.test(moves)) {
       return null;
     }
 
@@ -172,7 +190,9 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       // Convert blob to text
       const text = await data.text();
       setPgnContent(text);
-      parsePGNContent(text);
+      
+      // Parse the content
+      await parsePGNContent(text);
       
       // Update the file record to mark it as processed
       await supabase
@@ -243,12 +263,12 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       const errors: string[] = [];
 
       // Process games in smaller batches to avoid timeouts
-      const batchSize = 5;
+      const batchSize = 3; // Reduced batch size
       for (let i = 0; i < parsedGames.length; i += batchSize) {
         const batch = parsedGames.slice(i, i + batchSize);
         setProgress(`Processing games ${i + 1}-${Math.min(i + batchSize, parsedGames.length)} of ${parsedGames.length}...`);
 
-        // Process each game in the batch
+        // Process each game in the batch sequentially
         for (let j = 0; j < batch.length; j++) {
           const gameIndex = i + j;
           const game = batch[j];
@@ -265,15 +285,18 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
               continue; // Skip this game instead of failing
             }
 
-            // Create game record with unique external ID
+            // Create unique external ID to prevent duplicates
+            const extUid = `pgn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${gameIndex}`;
+
+            // Create game record
             const { data: gameRecord, error: gameError } = await supabase
               .from('games')
               .insert({
                 player_id: playerId,
-                site: selectedSite,
+                site: selectedSite === 'chess.com' ? 'Chess.com' : 'Lichess',
                 date: game.date !== '???.??.??' ? game.date : new Date().toISOString().split('T')[0],
                 result: game.result,
-                ext_uid: `pgn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${gameIndex}`
+                ext_uid: extUid
               })
               .select('id')
               .single();
@@ -308,11 +331,14 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
           } catch (gameError) {
             errors.push(`Game ${gameIndex + 1}: ${gameError instanceof Error ? gameError.message : 'Unknown error'}`);
           }
+
+          // Small delay between games to prevent overwhelming the database
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
 
-        // Small delay between batches to prevent overwhelming the database
+        // Delay between batches
         if (i + batchSize < parsedGames.length) {
-          await new Promise(resolve => setTimeout(resolve, 200));
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
 
@@ -359,6 +385,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
     setProgress('');
     setLoading(false);
     setImportProgress({ current: 0, total: 0 });
+    setIsProcessing(false);
   };
 
   const handleClose = () => {
@@ -393,17 +420,6 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
           {/* Tabs */}
           <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg mb-6">
             <button
-              onClick={() => setActiveTab('upload')}
-              className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'upload'
-                  ? 'bg-white text-green-600 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              <Cloud className="w-4 h-4" />
-              <span>Upload to Storage</span>
-            </button>
-            <button
               onClick={() => setActiveTab('paste')}
               className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
                 activeTab === 'paste'
@@ -413,6 +429,17 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
             >
               <FileText className="w-4 h-4" />
               <span>Paste Content</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('upload')}
+              className={`flex-1 flex items-center justify-center space-x-2 py-2 px-4 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'upload'
+                  ? 'bg-white text-green-600 shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+              }`}
+            >
+              <Cloud className="w-4 h-4" />
+              <span>Upload to Storage</span>
             </button>
           </div>
 
@@ -454,6 +481,69 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Paste Tab */}
+          {activeTab === 'paste' && !showPreview && (
+            <div className="space-y-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start space-x-3">
+                  <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div>
+                    <h4 className="text-sm font-medium text-blue-900">PGN Content</h4>
+                    <p className="text-sm text-blue-700 mt-1">
+                      Paste your PGN content directly. Supports multiple games separated by blank lines or [Event] headers.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="font-medium text-gray-900">Paste PGN content:</h4>
+                <textarea
+                  value={pgnContent}
+                  onChange={(e) => {
+                    setPgnContent(e.target.value);
+                    // Clear previous results when content changes
+                    setParsedGames([]);
+                    setShowPreview(false);
+                    setError('');
+                    setSuccess('');
+                  }}
+                  placeholder="Paste your PGN content here... (supports multiple games)
+
+Example:
+[Event &quot;Rated Blitz game&quot;]
+[Site &quot;lichess.org&quot;]
+[Date &quot;2024.01.15&quot;]
+[White &quot;PlayerName&quot;]
+[Black &quot;Opponent&quot;]
+[Result &quot;1-0&quot;]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0"
+                  className="w-full h-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
+                  disabled={isProcessing}
+                />
+                
+                {pgnContent.trim() && !isProcessing && (
+                  <button
+                    onClick={() => parsePGNContent(pgnContent)}
+                    disabled={loading || isProcessing}
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Parse PGN Content</span>
+                  </button>
+                )}
+                
+                {isProcessing && (
+                  <div className="flex items-center space-x-2 text-blue-600">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Processing PGN content...</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -502,51 +592,6 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
             </div>
           )}
 
-          {/* Paste Tab */}
-          {activeTab === 'paste' && !showPreview && (
-            <div className="space-y-6">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-start space-x-3">
-                  <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
-                  <div>
-                    <h4 className="text-sm font-medium text-blue-900">PGN Content</h4>
-                    <p className="text-sm text-blue-700 mt-1">
-                      Paste your PGN content directly. Supports multiple games separated by blank lines or [Event] headers.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h4 className="font-medium text-gray-900">Paste PGN content:</h4>
-                <textarea
-                  value={pgnContent}
-                  onChange={(e) => {
-                    setPgnContent(e.target.value);
-                    // Clear previous results when content changes
-                    setParsedGames([]);
-                    setShowPreview(false);
-                    setError('');
-                    setSuccess('');
-                  }}
-                  placeholder="Paste your PGN content here... (supports multiple games)"
-                  className="w-full h-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                />
-                
-                {pgnContent.trim() && (
-                  <button
-                    onClick={() => parsePGNContent(pgnContent)}
-                    disabled={loading}
-                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
-                  >
-                    <FileText className="w-4 h-4" />
-                    <span>Parse PGN Content</span>
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
           {/* Preview and Import */}
           {showPreview && (
             <div className="space-y-6">
@@ -564,6 +609,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                       onChange={(e) => setPlayerUsername(e.target.value)}
                       placeholder="Enter the player's username"
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={loading}
                     />
                     <p className="text-xs text-gray-500 mt-1">
                       This should match the player name in the PGN games
@@ -578,6 +624,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                       value={selectedSite}
                       onChange={(e) => setSelectedSite(e.target.value as 'chess.com' | 'lichess')}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={loading}
                     >
                       <option value="chess.com">Chess.com</option>
                       <option value="lichess">Lichess</option>
@@ -596,6 +643,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                     <button
                       onClick={() => setShowPreview(false)}
                       className="text-sm text-blue-600 hover:text-blue-800"
+                      disabled={loading}
                     >
                       <Eye className="w-4 h-4 inline mr-1" />
                       Edit Content
@@ -615,7 +663,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                             {game.event} • {game.date} • Result: {game.result}
                           </div>
                           <div className="text-xs text-gray-400 mt-1">
-                            Moves: {game.moves.split(' ').length} • Site: {game.site}
+                            Moves: {game.moves.split(' ').filter(m => m.includes('.')).length} • Site: {game.site}
                           </div>
                         </div>
                         <div className="text-xs text-gray-400">
