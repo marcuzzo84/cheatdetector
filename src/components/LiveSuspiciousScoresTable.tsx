@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Loader2, Wifi } from 'lucide-react';
+import { ExternalLink, Eye, AlertTriangle, CheckCircle, Clock, Loader2, Wifi, Database } from 'lucide-react';
 import { useLiveSuspiciousScores } from '../hooks/useLiveQueries';
 
 const LiveSuspiciousScoresTable: React.FC = () => {
@@ -135,10 +135,10 @@ const LiveSuspiciousScoresTable: React.FC = () => {
       {scores.length === 0 ? (
         <div className="p-6 text-center">
           <div className="text-gray-400 mb-2">
-            <CheckCircle className="w-8 h-8 mx-auto" />
+            <Database className="w-8 h-8 mx-auto" />
           </div>
           <p className="text-gray-600">No high-risk games found</p>
-          <p className="text-sm text-gray-500 mt-1">All recent games appear clean</p>
+          <p className="text-sm text-gray-500 mt-1">Import some games to see suspicious activity</p>
         </div>
       ) : (
         <div className="overflow-x-auto">

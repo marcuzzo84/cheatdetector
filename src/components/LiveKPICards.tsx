@@ -1,5 +1,5 @@
 import React from 'react';
-import { TrendingUp, Users, AlertTriangle, Activity, Loader2 } from 'lucide-react';
+import { TrendingUp, Users, AlertTriangle, Activity, Loader2, Database } from 'lucide-react';
 import { useLiveKPIs } from '../hooks/useLiveQueries';
 import KPICard from './KPICard';
 
@@ -42,7 +42,9 @@ const LiveKPICards: React.FC = () => {
     return (
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="col-span-3 bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+          <Database className="w-8 h-8 mx-auto text-gray-400 mb-2" />
           <span className="text-gray-500">No KPI data available</span>
+          <p className="text-sm text-gray-400 mt-1">Import some games to see statistics</p>
         </div>
       </div>
     );

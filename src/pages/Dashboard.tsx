@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Eye, Download, Database } from 'lucide-react';
+import { Eye, Download, Database, Loader2 } from 'lucide-react';
 import SuspicionChart from '../components/SuspicionChart';
 import RealtimeScoreStream from '../components/RealtimeScoreStream';
 import LiveKPICards from '../components/LiveKPICards';
@@ -8,10 +8,22 @@ import DataImportModal from '../components/DataImportModal';
 
 const Dashboard: React.FC = () => {
   const [showImportModal, setShowImportModal] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const handleImportSuccess = () => {
+    setRefreshing(true);
     // Refresh the page or trigger data reload
-    window.location.reload();
+    setTimeout(() => {
+      window.location.reload();
+    }, 1000);
+  };
+
+  const handleRefreshData = () => {
+    setRefreshing(true);
+    // Force refresh all components
+    setTimeout(() => {
+      window.location.reload();
+    }, 1000);
   };
 
   return (
@@ -23,6 +35,18 @@ const Dashboard: React.FC = () => {
           <p className="mt-2 text-gray-600">Real-time chess game analysis and suspicion monitoring</p>
         </div>
         <div className="flex items-center space-x-3">
+          <button
+            onClick={handleRefreshData}
+            disabled={refreshing}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
+          >
+            {refreshing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Database className="w-4 h-4" />
+            )}
+            <span>{refreshing ? 'Refreshing...' : 'Refresh Data'}</span>
+          </button>
           <button
             onClick={() => setShowImportModal(true)}
             className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -45,8 +69,22 @@ const Dashboard: React.FC = () => {
             <h4 className="text-sm font-medium text-blue-900">Get Started with Real Data</h4>
             <p className="text-sm text-blue-700 mt-1">
               Import chess games from Chess.com and Lichess to populate your dashboard with real analysis data. 
-              Use the "Import Game Data" button to fetch games from top players or specific usernames.
+              Use the "Import Game Data" button to fetch games from top players or upload your own PGN files.
             </p>
+            <div className="mt-2 flex space-x-2">
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="text-sm bg-blue-100 text-blue-800 px-3 py-1 rounded-md hover:bg-blue-200 transition-colors"
+              >
+                Import via API
+              </button>
+              <button
+                onClick={() => setShowImportModal(true)}
+                className="text-sm bg-green-100 text-green-800 px-3 py-1 rounded-md hover:bg-green-200 transition-colors"
+              >
+                Upload PGN Files
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -61,7 +99,10 @@ const Dashboard: React.FC = () => {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">📈 Suspicion rate last 30 days</h3>
-          <button className="text-sm text-blue-600 hover:text-blue-800 flex items-center">
+          <button 
+            onClick={handleRefreshData}
+            className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+          >
             <Eye className="w-4 h-4 mr-1" />
             View Details
           </button>

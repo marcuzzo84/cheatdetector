@@ -53,6 +53,12 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
         .replace(/\r/g, '\n')
         .trim();
 
+      if (!cleanContent) {
+        setError('No PGN content provided');
+        setProgress('');
+        return;
+      }
+
       // Split by double newlines first, then try other methods
       let gameBlocks = cleanContent.split(/\n\s*\n\s*\n/).filter(block => block.trim());
       
