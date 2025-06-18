@@ -24,6 +24,7 @@ interface ParsedGame {
   moves: string;
   whiteElo?: number;
   blackElo?: number;
+  headers: { [key: string]: string };
 }
 
 const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSuccess }) => {
@@ -38,80 +39,95 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
   const [showPreview, setShowPreview] = useState(false);
   const [playerUsername, setPlayerUsername] = useState('');
   const [selectedSite, setSelectedSite] = useState<'chess.com' | 'lichess'>('chess.com');
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
 
   const parsePGNContent = (content: string) => {
     try {
+      setProgress('Parsing PGN content...');
       const games: ParsedGame[] = [];
-      const gameBlocks = content.split(/\n\s*\n/).filter(block => block.trim());
       
-      let currentGame: Partial<ParsedGame> = {};
-      let inMoves = false;
-      let movesText = '';
+      // Split content by double newlines to separate games
+      const gameBlocks = content.split(/\n\s*\n\s*\n/).filter(block => block.trim());
+      
+      // If no double newlines found, try splitting by [Event
+      let finalBlocks = gameBlocks;
+      if (gameBlocks.length === 1) {
+        finalBlocks = content.split(/(?=\[Event)/g).filter(block => block.trim());
+      }
 
-      for (const block of gameBlocks) {
-        const lines = block.split('\n');
-        
-        for (const line of lines) {
-          const trimmedLine = line.trim();
-          
-          if (trimmedLine.startsWith('[') && trimmedLine.endsWith(']')) {
-            // Parse header
-            const match = trimmedLine.match(/\[(\w+)\s+"([^"]+)"\]/);
-            if (match) {
-              const [, key, value] = match;
-              switch (key.toLowerCase()) {
-                case 'white':
-                  currentGame.white = value;
-                  break;
-                case 'black':
-                  currentGame.black = value;
-                  break;
-                case 'result':
-                  currentGame.result = value;
-                  break;
-                case 'date':
-                  currentGame.date = value;
-                  break;
-                case 'site':
-                  currentGame.site = value;
-                  break;
-                case 'event':
-                  currentGame.event = value;
-                  break;
-                case 'whiteelo':
-                  currentGame.whiteElo = parseInt(value);
-                  break;
-                case 'blackelo':
-                  currentGame.blackElo = parseInt(value);
-                  break;
-              }
-            }
-          } else if (trimmedLine && !trimmedLine.startsWith('[')) {
-            // This is moves content
-            inMoves = true;
-            movesText += trimmedLine + ' ';
+      console.log(`Found ${finalBlocks.length} potential game blocks`);
+
+      for (let blockIndex = 0; blockIndex < finalBlocks.length; blockIndex++) {
+        const block = finalBlocks[blockIndex].trim();
+        if (!block) continue;
+
+        try {
+          const game = parseSingleGame(block);
+          if (game && game.white && game.black && game.moves) {
+            games.push(game);
           }
-        }
-
-        // If we have moves and basic game info, save the game
-        if (inMoves && currentGame.white && currentGame.black) {
-          currentGame.moves = movesText.trim();
-          games.push(currentGame as ParsedGame);
-          
-          // Reset for next game
-          currentGame = {};
-          inMoves = false;
-          movesText = '';
+        } catch (gameError) {
+          console.warn(`Error parsing game ${blockIndex + 1}:`, gameError);
+          // Continue with other games instead of failing completely
         }
       }
 
+      console.log(`Successfully parsed ${games.length} games`);
       setParsedGames(games);
       setShowPreview(true);
       setSuccess(`Successfully parsed ${games.length} games from PGN content`);
+      setProgress('');
     } catch (err) {
-      setError('Failed to parse PGN content. Please check the format.');
       console.error('PGN parsing error:', err);
+      setError('Failed to parse PGN content. Please check the format.');
+      setProgress('');
     }
+  };
+
+  const parseSingleGame = (gameText: string): ParsedGame | null => {
+    const lines = gameText.split('\n').map(line => line.trim()).filter(line => line);
+    const headers: { [key: string]: string } = {};
+    const moveLines: string[] = [];
+    let inMoves = false;
+
+    for (const line of lines) {
+      if (line.startsWith('[') && line.endsWith(']')) {
+        // Parse header
+        const match = line.match(/\[(\w+)\s+"([^"]+)"\]/);
+        if (match) {
+          const [, key, value] = match;
+          headers[key.toLowerCase()] = value;
+        }
+      } else if (line && !line.startsWith('[')) {
+        // This is moves content
+        inMoves = true;
+        moveLines.push(line);
+      }
+    }
+
+    if (!inMoves || moveLines.length === 0) {
+      return null;
+    }
+
+    // Join all move lines and clean up
+    const moves = moveLines.join(' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\{[^}]*\}/g, '') // Remove comments
+      .replace(/\([^)]*\)/g, '') // Remove variations
+      .trim();
+
+    return {
+      white: headers.white || 'Unknown',
+      black: headers.black || 'Unknown',
+      result: headers.result || '*',
+      date: headers.date || new Date().toISOString().split('T')[0],
+      site: headers.site || selectedSite,
+      event: headers.event || 'Unknown Event',
+      moves: moves,
+      whiteElo: headers.whiteelo ? parseInt(headers.whiteelo) : undefined,
+      blackElo: headers.blackelo ? parseInt(headers.blackelo) : undefined,
+      headers: headers
+    };
   };
 
   const handleFileUploaded = async (uploadedFile: any) => {
@@ -161,7 +177,8 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
 
     setLoading(true);
     setError('');
-    setProgress('Processing PGN games...');
+    setProgress('Starting import process...');
+    setImportProgress({ current: 0, total: parsedGames.length });
 
     try {
       // Create or find player
@@ -199,21 +216,27 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       let importedCount = 0;
       const errors: string[] = [];
 
-      // Process games in batches
-      const batchSize = 10;
+      // Process games in smaller batches to avoid timeouts
+      const batchSize = 5;
       for (let i = 0; i < parsedGames.length; i += batchSize) {
         const batch = parsedGames.slice(i, i + batchSize);
         setProgress(`Processing games ${i + 1}-${Math.min(i + batchSize, parsedGames.length)} of ${parsedGames.length}...`);
 
-        for (const game of batch) {
+        // Process each game in the batch
+        for (let j = 0; j < batch.length; j++) {
+          const gameIndex = i + j;
+          const game = batch[j];
+          
           try {
+            setImportProgress({ current: gameIndex + 1, total: parsedGames.length });
+            
             // Determine if this player was white or black
             const isWhite = game.white.toLowerCase().includes(playerUsername.toLowerCase());
             const isBlack = game.black.toLowerCase().includes(playerUsername.toLowerCase());
             
             if (!isWhite && !isBlack) {
-              errors.push(`Game ${game.white} vs ${game.black}: Player ${playerUsername} not found in game`);
-              continue;
+              console.warn(`Game ${gameIndex + 1}: Player ${playerUsername} not found in game`);
+              continue; // Skip this game instead of failing
             }
 
             // Create game record
@@ -224,13 +247,13 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                 site: selectedSite,
                 date: game.date !== '???.??.??' ? game.date : new Date().toISOString().split('T')[0],
                 result: game.result,
-                ext_uid: `pgn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                ext_uid: `pgn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${gameIndex}`
               })
               .select('id')
               .single();
 
             if (gameError) {
-              errors.push(`Failed to create game record: ${gameError.message}`);
+              errors.push(`Game ${gameIndex + 1}: Failed to create game record - ${gameError.message}`);
               continue;
             }
 
@@ -251,31 +274,46 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
               });
 
             if (scoreError) {
-              errors.push(`Failed to create score record: ${scoreError.message}`);
+              errors.push(`Game ${gameIndex + 1}: Failed to create score record - ${scoreError.message}`);
               continue;
             }
 
             importedCount++;
           } catch (gameError) {
-            errors.push(`Error processing game: ${gameError instanceof Error ? gameError.message : 'Unknown error'}`);
+            errors.push(`Game ${gameIndex + 1}: ${gameError instanceof Error ? gameError.message : 'Unknown error'}`);
           }
         }
 
-        // Small delay between batches
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Small delay between batches to prevent overwhelming the database
+        if (i + batchSize < parsedGames.length) {
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
       }
 
       setProgress('');
-      setSuccess(`Successfully imported ${importedCount} games from PGN file`);
+      setImportProgress({ current: parsedGames.length, total: parsedGames.length });
+      
+      if (importedCount > 0) {
+        setSuccess(`Successfully imported ${importedCount} out of ${parsedGames.length} games from PGN file`);
+      } else {
+        setError('No games were imported successfully');
+      }
       
       if (errors.length > 0) {
-        setError(`Some games failed to import: ${errors.slice(0, 3).join(', ')}${errors.length > 3 ? ` and ${errors.length - 3} more...` : ''}`);
+        console.warn('Import errors:', errors);
+        if (errors.length <= 3) {
+          setError(`Some games failed to import: ${errors.join(', ')}`);
+        } else {
+          setError(`${errors.length} games failed to import. Check console for details.`);
+        }
       }
 
       // Call success callback after a short delay
-      setTimeout(() => {
-        onSuccess?.();
-      }, 1500);
+      if (importedCount > 0) {
+        setTimeout(() => {
+          onSuccess?.();
+        }, 1500);
+      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to import PGN games');
@@ -294,6 +332,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
     setSuccess('');
     setProgress('');
     setLoading(false);
+    setImportProgress({ current: 0, total: 0 });
   };
 
   const handleClose = () => {
@@ -376,6 +415,19 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                 <Loader2 className="w-4 h-4 text-blue-500 mr-2 animate-spin" />
                 <span className="text-sm text-blue-700">{progress}</span>
               </div>
+              {importProgress.total > 0 && (
+                <div className="mt-2">
+                  <div className="w-full bg-blue-200 rounded-full h-2">
+                    <div 
+                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${(importProgress.current / importProgress.total) * 100}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-blue-600 mt-1">
+                    {importProgress.current} / {importProgress.total} games processed
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -400,11 +452,11 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                       </div>
                       <div className="flex items-center space-x-2">
                         <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>File management</span>
+                        <span>Multiple games support</span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <CheckCircle className="w-4 h-4 text-green-500" />
-                        <span>Download anytime</span>
+                        <span>Batch processing</span>
                       </div>
                       <div className="flex items-center space-x-2">
                         <CheckCircle className="w-4 h-4 text-green-500" />
@@ -433,7 +485,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                   <div>
                     <h4 className="text-sm font-medium text-blue-900">PGN Content</h4>
                     <p className="text-sm text-blue-700 mt-1">
-                      Paste your PGN content directly. This method doesn't save files to storage but processes them immediately.
+                      Paste your PGN content directly. Supports multiple games separated by blank lines or [Event] headers.
                     </p>
                   </div>
                 </div>
@@ -445,16 +497,26 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                   value={pgnContent}
                   onChange={(e) => {
                     setPgnContent(e.target.value);
-                    if (e.target.value.trim()) {
-                      parsePGNContent(e.target.value);
-                    } else {
-                      setParsedGames([]);
-                      setShowPreview(false);
-                    }
+                    // Clear previous results when content changes
+                    setParsedGames([]);
+                    setShowPreview(false);
+                    setError('');
+                    setSuccess('');
                   }}
-                  placeholder="Paste your PGN content here..."
+                  placeholder="Paste your PGN content here... (supports multiple games)"
                   className="w-full h-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
                 />
+                
+                {pgnContent.trim() && (
+                  <button
+                    onClick={() => parsePGNContent(pgnContent)}
+                    disabled={loading}
+                    className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    <FileText className="w-4 h-4" />
+                    <span>Parse PGN Content</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -526,6 +588,9 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                           <div className="text-xs text-gray-500">
                             {game.event} • {game.date} • Result: {game.result}
                           </div>
+                          <div className="text-xs text-gray-400 mt-1">
+                            Moves: {game.moves.split(' ').length} • Site: {game.site}
+                          </div>
                         </div>
                         <div className="text-xs text-gray-400">
                           {game.whiteElo && `${game.whiteElo}`}
@@ -573,24 +638,24 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
             <div className="flex items-start space-x-3">
               <Zap className="w-5 h-5 text-blue-600 mt-0.5" />
               <div>
-                <h4 className="text-sm font-medium text-gray-900">Storage vs Direct Processing</h4>
+                <h4 className="text-sm font-medium text-gray-900">Enhanced PGN Processing</h4>
                 <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="font-medium text-green-700">✓ Upload to Storage</p>
+                    <p className="font-medium text-green-700">✓ Multiple Games Support</p>
                     <ul className="text-gray-600 mt-1 space-y-1">
-                      <li>• Files saved to your account</li>
-                      <li>• Download anytime</li>
-                      <li>• File management features</li>
-                      <li>• Secure cloud storage</li>
+                      <li>• Automatic game separation</li>
+                      <li>• Batch processing with progress</li>
+                      <li>• Error recovery for individual games</li>
+                      <li>• Robust PGN parsing</li>
                     </ul>
                   </div>
                   <div>
-                    <p className="font-medium text-blue-700">⚡ Direct Processing</p>
+                    <p className="font-medium text-blue-700">⚡ Smart Processing</p>
                     <ul className="text-gray-600 mt-1 space-y-1">
-                      <li>• Immediate processing</li>
-                      <li>• No storage used</li>
-                      <li>• Quick one-time analysis</li>
-                      <li>• Paste content directly</li>
+                      <li>• Handles various PGN formats</li>
+                      <li>• Skips invalid games gracefully</li>
+                      <li>• Progress tracking and feedback</li>
+                      <li>• Detailed error reporting</li>
                     </ul>
                   </div>
                 </div>
