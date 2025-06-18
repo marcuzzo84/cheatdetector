@@ -320,7 +320,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
             }
 
             // Create unique external ID to prevent duplicates
-            const extUid = `pgn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${gameIndex}`;
+            const extUid = `pgn_${Date.now()}_${Math.random().toString(36).substring(2, 9)}_${gameIndex}`;
 
             // Create game record
             const { data: gameRecord, error: gameError } = await supabase
