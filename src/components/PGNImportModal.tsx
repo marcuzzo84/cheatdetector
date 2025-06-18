@@ -489,6 +489,10 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
     onClose();
   };
 
+  const handlePGNSuccess = () => {
+    onSuccess?.();
+  };
+
   if (!isOpen) return null;
 
   return (

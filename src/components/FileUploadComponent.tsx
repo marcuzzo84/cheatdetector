@@ -62,6 +62,7 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
       const { data, error } = await supabase
         .from('uploaded_files')
         .select('*')
+        .eq('user_id', user?.id)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -161,9 +162,17 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
 
     try {
       const uploadedFileRecords: UploadedFile[] = [];
+      const totalFiles = files.length;
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
+        const fileIndex = i + 1;
+        
+        console.log(`Processing file ${fileIndex}/${totalFiles}: ${file.name}`);
+        
+        // Update progress for file start
+        const baseProgress = (i / totalFiles) * 100;
+        setUploadProgress(baseProgress);
         
         // Validate file
         const validationError = validateFile(file);
@@ -173,8 +182,8 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
           return;
         }
 
-        // Update progress for file validation
-        setUploadProgress(((i + 0.1) / files.length) * 100);
+        // Update progress for validation complete
+        setUploadProgress(baseProgress + (10 / totalFiles));
 
         // Create file path
         const fileExtension = file.name.split('.').pop()?.toLowerCase();
@@ -186,7 +195,7 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         console.log(`Path: ${filePath}`);
 
         // Update progress for upload start
-        setUploadProgress(((i + 0.3) / files.length) * 100);
+        setUploadProgress(baseProgress + (20 / totalFiles));
 
         // Upload to Supabase Storage with progress tracking
         const { data: uploadData, error: uploadError } = await supabase.storage
@@ -203,8 +212,8 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
 
         console.log('File uploaded successfully:', uploadData?.path);
 
-        // Update progress for database record creation
-        setUploadProgress(((i + 0.7) / files.length) * 100);
+        // Update progress for upload complete
+        setUploadProgress(baseProgress + (60 / totalFiles));
 
         // Create database record
         const { data: fileRecord, error: dbError } = await supabase
@@ -216,9 +225,12 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
             file_size: file.size,
             mime_type: file.type || 'application/octet-stream',
             file_type: fileType,
+            games_count: 0, // Will be updated after processing
+            processed: false,
             metadata: {
               original_name: file.name,
-              upload_date: new Date().toISOString()
+              upload_date: new Date().toISOString(),
+              file_extension: fileExtension
             }
           })
           .select()
@@ -233,10 +245,12 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         
         uploadedFileRecords.push(fileRecord);
         
-        // Update progress for completed file
-        setUploadProgress(((i + 1) / files.length) * 100);
+        // Update progress for file complete
+        setUploadProgress(baseProgress + (100 / totalFiles));
       }
 
+      // Final progress update
+      setUploadProgress(100);
       setSuccess(`Successfully uploaded ${files.length} file(s)`);
       
       // Refresh file list and storage usage
@@ -253,7 +267,11 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
-      setUploadProgress(0);
+      
+      // Reset progress after a delay
+      setTimeout(() => {
+        setUploadProgress(0);
+      }, 2000);
       
       // Reset file input
       if (fileInputRef.current) {
