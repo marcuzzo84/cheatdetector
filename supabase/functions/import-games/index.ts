@@ -52,11 +52,18 @@ serve(async (req) => {
   }
 
   try {
+    console.log('=== Import Games Edge Function Started ===')
+    console.log('Method:', req.method)
+    console.log('Headers:', Object.fromEntries(req.headers.entries()))
+
     // Get authorization header
     const authHeader = req.headers.get('Authorization')
+    const apiKeyHeader = req.headers.get('apikey')
+    
     console.log('Auth header present:', !!authHeader)
+    console.log('API key header present:', !!apiKeyHeader)
 
-    // Create Supabase client with proper auth
+    // Create Supabase client - use service role for database operations
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
@@ -68,34 +75,65 @@ serve(async (req) => {
       }
     )
 
-    // If we have an auth header, try to get the user
+    console.log('Supabase client created with service role')
+
+    // For authentication, we'll be more permissive to avoid 401 errors
     let userId = null
+    let isAuthenticated = false
+
     if (authHeader && authHeader.startsWith('Bearer ')) {
       const token = authHeader.replace('Bearer ', '')
+      console.log('Token received, length:', token.length)
       
-      // For demo purposes, accept any token that's not 'demo-token'
-      if (token !== 'demo-token') {
+      // Try to validate the token, but don't fail if it doesn't work
+      if (token !== 'demo-token' && token.length > 10) {
         try {
-          const { data: { user }, error: authError } = await supabaseClient.auth.getUser(token)
+          // Create a client with the user token for validation
+          const userClient = createClient(
+            Deno.env.get('SUPABASE_URL') ?? '',
+            Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+            {
+              auth: {
+                autoRefreshToken: false,
+                persistSession: false
+              }
+            }
+          )
+
+          const { data: { user }, error: authError } = await userClient.auth.getUser(token)
+          
           if (user && !authError) {
             userId = user.id
-            console.log('Authenticated user:', user.id)
+            isAuthenticated = true
+            console.log('Successfully authenticated user:', user.id)
           } else {
-            console.log('Auth error:', authError?.message)
+            console.log('Token validation failed:', authError?.message || 'Unknown auth error')
+            // Don't fail here - continue with demo mode
           }
         } catch (authError) {
-          console.log('Token validation failed:', authError)
+          console.log('Auth validation error (continuing anyway):', authError)
+          // Continue without authentication
         }
+      } else {
+        console.log('Using demo token or invalid token format')
       }
+    } else {
+      console.log('No authorization header provided')
     }
 
     // Parse request body
     let requestData: ImportRequest
     try {
-      requestData = await req.json()
+      const bodyText = await req.text()
+      console.log('Request body:', bodyText)
+      requestData = JSON.parse(bodyText)
     } catch (parseError) {
+      console.error('JSON parse error:', parseError)
       return new Response(
-        JSON.stringify({ error: 'Invalid JSON in request body' }),
+        JSON.stringify({ 
+          error: 'Invalid JSON in request body',
+          success: false 
+        }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -104,10 +142,15 @@ serve(async (req) => {
     }
 
     const { site, username, limit } = requestData
+    console.log('Import request:', { site, username, limit })
 
+    // Validate parameters
     if (!site || !username || !limit) {
       return new Response(
-        JSON.stringify({ error: 'Missing required parameters: site, username, limit' }),
+        JSON.stringify({ 
+          error: 'Missing required parameters: site, username, limit',
+          success: false 
+        }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -115,10 +158,12 @@ serve(async (req) => {
       )
     }
 
-    // Validate parameters
     if (!['chess.com', 'lichess'].includes(site)) {
       return new Response(
-        JSON.stringify({ error: 'Invalid site. Must be chess.com or lichess' }),
+        JSON.stringify({ 
+          error: 'Invalid site. Must be chess.com or lichess',
+          success: false 
+        }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -128,7 +173,10 @@ serve(async (req) => {
 
     if (limit < 1 || limit > 100) {
       return new Response(
-        JSON.stringify({ error: 'Limit must be between 1 and 100' }),
+        JSON.stringify({ 
+          error: 'Limit must be between 1 and 100',
+          success: false 
+        }),
         { 
           status: 400, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -141,6 +189,7 @@ serve(async (req) => {
     let games: any[] = []
     let errors: string[] = []
 
+    // Fetch games from the appropriate API
     if (site === 'chess.com') {
       const result = await importFromChessCom(username, limit)
       games = result.games
@@ -151,7 +200,7 @@ serve(async (req) => {
       errors = result.errors
     }
 
-    console.log(`Fetched ${games.length} games, processing...`)
+    console.log(`Fetched ${games.length} games from ${site}`)
 
     if (games.length === 0) {
       return new Response(
@@ -172,16 +221,34 @@ serve(async (req) => {
     const playerHash = `${site}_${username.toLowerCase()}`
     let playerId: string
 
-    const { data: existingPlayer } = await supabaseClient
+    console.log('Looking for existing player with hash:', playerHash)
+
+    const { data: existingPlayer, error: playerFetchError } = await supabaseClient
       .from('players')
       .select('id')
       .eq('hash', playerHash)
       .single()
 
+    if (playerFetchError && playerFetchError.code !== 'PGRST116') {
+      console.error('Error fetching player:', playerFetchError)
+      return new Response(
+        JSON.stringify({ 
+          error: `Database error: ${playerFetchError.message}`,
+          success: false 
+        }),
+        { 
+          status: 500, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
+    }
+
     if (existingPlayer) {
       playerId = existingPlayer.id
       console.log(`Using existing player: ${playerId}`)
     } else {
+      console.log('Creating new player...')
+      
       // Extract rating from first game
       let playerRating = 1500
       if (games[0]) {
@@ -209,7 +276,10 @@ serve(async (req) => {
       if (playerError) {
         console.error('Player creation error:', playerError)
         return new Response(
-          JSON.stringify({ error: `Failed to create player: ${playerError.message}` }),
+          JSON.stringify({ 
+            error: `Failed to create player: ${playerError.message}`,
+            success: false 
+          }),
           { 
             status: 500, 
             headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -223,6 +293,8 @@ serve(async (req) => {
     // Process games
     let imported = 0
     const gameErrors: string[] = []
+
+    console.log(`Processing ${games.length} games...`)
 
     for (let i = 0; i < games.length; i++) {
       const game = games[i]
@@ -304,7 +376,10 @@ serve(async (req) => {
         }
 
         imported++
-        console.log(`Imported game ${imported}/${games.length}`)
+        
+        if (imported % 5 === 0) {
+          console.log(`Imported ${imported}/${games.length} games`)
+        }
 
       } catch (error) {
         console.error(`Error processing game ${i + 1}:`, error)
@@ -312,7 +387,9 @@ serve(async (req) => {
       }
     }
 
-    // Update sync cursor
+    console.log(`Import completed: ${imported} games imported successfully`)
+
+    // Update sync cursor (optional, don't fail if this fails)
     try {
       await supabaseClient
         .from('sync_cursor')
@@ -323,28 +400,38 @@ serve(async (req) => {
           total_imported: imported,
           last_game_id: games[0]?.uuid || games[0]?.id || null
         })
+      console.log('Sync cursor updated successfully')
     } catch (cursorError) {
-      console.error('Sync cursor update error:', cursorError)
+      console.error('Sync cursor update error (non-fatal):', cursorError)
       // Don't fail the entire import for cursor errors
     }
 
     const allErrors = [...errors, ...gameErrors]
 
+    const response = {
+      success: true,
+      imported,
+      total_fetched: games.length,
+      errors: allErrors.slice(0, 10), // Limit error messages
+      message: `Successfully imported ${imported} out of ${games.length} games`,
+      authentication_status: isAuthenticated ? 'authenticated' : 'demo_mode'
+    }
+
+    console.log('=== Import completed successfully ===')
+    console.log('Response:', response)
+
     return new Response(
-      JSON.stringify({
-        success: true,
-        imported,
-        total_fetched: games.length,
-        errors: allErrors.slice(0, 10), // Limit error messages
-        message: `Successfully imported ${imported} out of ${games.length} games`
-      }),
+      JSON.stringify(response),
       { 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
 
   } catch (error) {
-    console.error('Import error:', error)
+    console.error('=== Import function error ===')
+    console.error('Error:', error)
+    console.error('Stack:', error.stack)
+    
     return new Response(
       JSON.stringify({ 
         error: error.message || 'Internal server error',

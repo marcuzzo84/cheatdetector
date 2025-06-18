@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { X, Download, Users, AlertTriangle, CheckCircle, Loader2, Database, Globe, Zap, Cloud, Crown, FileText } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import PGNImportModal from './PGNImportModal';
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 interface DataImportModalProps {
   isOpen: boolean;
@@ -36,69 +41,102 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
 
     setLoading(true);
     setError('');
-    setProgress('Calling Chess.com/Lichess API...');
+    setProgress('Connecting to Chess.com/Lichess API...');
 
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      
-      // Get the current session for authentication
+      console.log('=== Starting Live Import ===');
+      console.log('Import config:', liveImport);
+      console.log('User:', user?.id);
+      console.log('Supabase URL:', supabaseUrl);
+
+      // Get authentication token
       let authToken = 'demo-token';
-      
+      let authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': supabaseAnonKey,
+      };
+
       if (user) {
-        // Try to get a fresh session
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.access_token) {
+          console.log('Getting fresh session...');
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+          
+          if (session?.access_token && !sessionError) {
             authToken = session.access_token;
-            console.log('Using session token for authentication');
+            authHeaders['Authorization'] = `Bearer ${authToken}`;
+            console.log('Using authenticated session token');
           } else {
-            console.log('No session token available, using demo mode');
+            console.log('Session error or no token:', sessionError?.message);
+            // Continue with demo mode
+            authHeaders['Authorization'] = `Bearer demo-token`;
           }
         } catch (sessionError) {
-          console.warn('Failed to get session:', sessionError);
+          console.warn('Failed to get session, using demo mode:', sessionError);
+          authHeaders['Authorization'] = `Bearer demo-token`;
         }
+      } else {
+        console.log('No user, using demo mode');
+        authHeaders['Authorization'] = `Bearer demo-token`;
       }
 
-      console.log('Making request to Edge Function...');
-      
+      console.log('Request headers:', authHeaders);
+
+      const requestBody = {
+        site: liveImport.site,
+        username: liveImport.username,
+        limit: liveImport.limit
+      };
+
+      console.log('Request body:', requestBody);
+
+      setProgress('Calling Edge Function...');
+
       const response = await fetch(`${supabaseUrl}/functions/v1/import-games`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${authToken}`,
-          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          site: liveImport.site,
-          username: liveImport.username,
-          limit: liveImport.limit
-        })
+        headers: authHeaders,
+        body: JSON.stringify(requestBody)
       });
 
       console.log('Response status:', response.status);
       console.log('Response headers:', Object.fromEntries(response.headers.entries()));
 
+      // Get response text first to handle both JSON and text responses
+      const responseText = await response.text();
+      console.log('Response text:', responseText);
+
       if (!response.ok) {
         let errorMessage = `HTTP ${response.status}`;
+        
         try {
-          const errorData = await response.json();
+          const errorData = JSON.parse(responseText);
           errorMessage = errorData.error || errorMessage;
+          console.error('Parsed error:', errorData);
         } catch (parseError) {
-          const errorText = await response.text();
-          errorMessage = errorText || errorMessage;
+          errorMessage = responseText || errorMessage;
+          console.error('Raw error response:', responseText);
         }
+        
         throw new Error(errorMessage);
       }
 
-      const result = await response.json();
-      console.log('Import result:', result);
+      // Parse successful response
+      let result;
+      try {
+        result = JSON.parse(responseText);
+        console.log('Parsed result:', result);
+      } catch (parseError) {
+        console.error('Failed to parse success response:', responseText);
+        throw new Error('Invalid response format from server');
+      }
       
       if (result.success) {
         setSuccess(`Successfully imported ${result.imported} games for ${liveImport.username} from ${liveImport.site}`);
+        
         if (result.errors && result.errors.length > 0) {
           console.warn('Import warnings:', result.errors);
           setError(`Some warnings: ${result.errors.slice(0, 3).join(', ')}`);
         }
+        
         setProgress('');
         
         // Call success callback after a short delay
@@ -109,8 +147,26 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
         throw new Error(result.error || 'Import failed');
       }
     } catch (err) {
-      console.error('Import error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to import via API');
+      console.error('=== Import Error ===');
+      console.error('Error:', err);
+      
+      let errorMessage = 'Failed to import via API';
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      
+      // Provide more helpful error messages
+      if (errorMessage.includes('401')) {
+        errorMessage = 'Authentication failed. Please try signing out and signing back in.';
+      } else if (errorMessage.includes('404')) {
+        errorMessage = 'Player not found on the selected chess platform.';
+      } else if (errorMessage.includes('500')) {
+        errorMessage = 'Server error. Please try again in a few moments.';
+      } else if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
+        errorMessage = 'Network error. Please check your connection and try again.';
+      }
+      
+      setError(errorMessage);
       setProgress('');
     } finally {
       setLoading(false);
@@ -131,17 +187,21 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
     setProgress('Importing demo data from Chess.com and Lichess...');
 
     try {
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       let totalImported = 0;
       const errors: string[] = [];
 
-      // Get authentication token
-      let authToken = 'demo-token';
+      // Get authentication headers
+      let authHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'apikey': supabaseAnonKey,
+        'Authorization': 'Bearer demo-token'
+      };
+
       if (user) {
         try {
           const { data: { session } } = await supabase.auth.getSession();
           if (session?.access_token) {
-            authToken = session.access_token;
+            authHeaders['Authorization'] = `Bearer ${session.access_token}`;
           }
         } catch (sessionError) {
           console.warn('Failed to get session for demo import:', sessionError);
@@ -155,11 +215,7 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
         try {
           const response = await fetch(`${supabaseUrl}/functions/v1/import-games`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`,
-              'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-            },
+            headers: authHeaders,
             body: JSON.stringify({
               site: player.site,
               username: player.username,
@@ -167,16 +223,26 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
             })
           });
 
+          const responseText = await response.text();
+          
           if (response.ok) {
-            const result = await response.json();
-            if (result.success) {
-              totalImported += result.imported;
-            } else {
-              errors.push(`${player.username}: ${result.error}`);
+            try {
+              const result = JSON.parse(responseText);
+              if (result.success) {
+                totalImported += result.imported;
+              } else {
+                errors.push(`${player.username}: ${result.error}`);
+              }
+            } catch (parseError) {
+              errors.push(`${player.username}: Invalid response format`);
             }
           } else {
-            const errorData = await response.json();
-            errors.push(`${player.username}: ${errorData.error}`);
+            try {
+              const errorData = JSON.parse(responseText);
+              errors.push(`${player.username}: ${errorData.error}`);
+            } catch (parseError) {
+              errors.push(`${player.username}: HTTP ${response.status}`);
+            }
           }
         } catch (err) {
           errors.push(`${player.username}: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -390,10 +456,10 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
                   <div className="flex items-start space-x-2">
                     <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
                     <div>
-                      <h4 className="text-sm font-medium text-green-800">Production-Ready Import</h4>
+                      <h4 className="text-sm font-medium text-green-800">Enhanced Authentication</h4>
                       <p className="text-sm text-green-700 mt-1">
-                        This Edge Function handles authentication, rate limiting, duplicate detection, and cursor tracking automatically.
-                        Perfect for production use with proper error handling and resumable imports.
+                        The import function now handles authentication more gracefully and provides better error messages. 
+                        Works in both authenticated and demo modes with improved error handling.
                       </p>
                     </div>
                   </div>
