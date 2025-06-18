@@ -40,11 +40,33 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
 
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      
+      // Get the current session for authentication
+      let authToken = 'demo-token';
+      
+      if (user) {
+        // Try to get a fresh session
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            authToken = session.access_token;
+            console.log('Using session token for authentication');
+          } else {
+            console.log('No session token available, using demo mode');
+          }
+        } catch (sessionError) {
+          console.warn('Failed to get session:', sessionError);
+        }
+      }
+
+      console.log('Making request to Edge Function...');
+      
       const response = await fetch(`${supabaseUrl}/functions/v1/import-games`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${user?.access_token || 'demo-token'}`,
+          'Authorization': `Bearer ${authToken}`,
+          'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({
           site: liveImport.site,
@@ -53,20 +75,41 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
         })
       });
 
+      console.log('Response status:', response.status);
+      console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP ${response.status}`);
+        let errorMessage = `HTTP ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (parseError) {
+          const errorText = await response.text();
+          errorMessage = errorText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
       const result = await response.json();
+      console.log('Import result:', result);
       
-      setSuccess(`Successfully imported ${result.imported} games for ${liveImport.username} from ${liveImport.site}`);
-      if (result.errors && result.errors.length > 0) {
-        setError(`Some errors occurred: ${result.errors.slice(0, 3).join(', ')}`);
+      if (result.success) {
+        setSuccess(`Successfully imported ${result.imported} games for ${liveImport.username} from ${liveImport.site}`);
+        if (result.errors && result.errors.length > 0) {
+          console.warn('Import warnings:', result.errors);
+          setError(`Some warnings: ${result.errors.slice(0, 3).join(', ')}`);
+        }
+        setProgress('');
+        
+        // Call success callback after a short delay
+        setTimeout(() => {
+          onSuccess?.();
+        }, 1500);
+      } else {
+        throw new Error(result.error || 'Import failed');
       }
-      setProgress('');
-      onSuccess?.();
     } catch (err) {
+      console.error('Import error:', err);
       setError(err instanceof Error ? err.message : 'Failed to import via API');
       setProgress('');
     } finally {
@@ -92,6 +135,19 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
       let totalImported = 0;
       const errors: string[] = [];
 
+      // Get authentication token
+      let authToken = 'demo-token';
+      if (user) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.access_token) {
+            authToken = session.access_token;
+          }
+        } catch (sessionError) {
+          console.warn('Failed to get session for demo import:', sessionError);
+        }
+      }
+
       for (let i = 0; i < demoPlayers.length; i++) {
         const player = demoPlayers[i];
         setProgress(`Importing ${player.username} from ${player.site} (${i + 1}/${demoPlayers.length})...`);
@@ -101,7 +157,8 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${user?.access_token || 'demo-token'}`,
+              'Authorization': `Bearer ${authToken}`,
+              'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
             },
             body: JSON.stringify({
               site: player.site,
@@ -112,7 +169,11 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
 
           if (response.ok) {
             const result = await response.json();
-            totalImported += result.imported;
+            if (result.success) {
+              totalImported += result.imported;
+            } else {
+              errors.push(`${player.username}: ${result.error}`);
+            }
           } else {
             const errorData = await response.json();
             errors.push(`${player.username}: ${errorData.error}`);
@@ -132,7 +193,11 @@ const DataImportModal: React.FC<DataImportModalProps> = ({ isOpen, onClose, onSu
         setError(`Some imports failed: ${errors.slice(0, 3).join(', ')}`);
       }
       setProgress('');
-      onSuccess?.();
+      
+      // Call success callback
+      setTimeout(() => {
+        onSuccess?.();
+      }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to import demo data');
       setProgress('');
