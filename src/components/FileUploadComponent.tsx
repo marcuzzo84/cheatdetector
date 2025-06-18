@@ -80,15 +80,25 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
 
   const fetchStorageUsage = async () => {
     try {
+      // Create a simple query to get user's file stats
       const { data, error } = await supabase
-        .rpc('get_user_storage_usage');
+        .from('uploaded_files')
+        .select('file_size, file_type')
+        .eq('user_id', user?.id);
 
       if (error) {
         console.error('Error fetching storage usage:', error);
-        throw error;
+        return;
       }
       
-      setStorageUsage(data?.[0] || null);
+      const stats = {
+        total_files: data?.length || 0,
+        total_size: data?.reduce((sum, file) => sum + (file.file_size || 0), 0) || 0,
+        pgn_files: data?.filter(file => file.file_type === 'pgn').length || 0,
+        pgn_size: data?.filter(file => file.file_type === 'pgn').reduce((sum, file) => sum + (file.file_size || 0), 0) || 0
+      };
+      
+      setStorageUsage(stats);
     } catch (err) {
       console.error('Error fetching storage usage:', err);
       // Don't show error for storage usage - it's not critical
@@ -163,6 +173,9 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
           return;
         }
 
+        // Update progress for file validation
+        setUploadProgress(((i + 0.1) / files.length) * 100);
+
         // Create file path
         const fileExtension = file.name.split('.').pop()?.toLowerCase();
         const fileType = fileExtension === 'pgn' ? 'pgn' : 'analysis';
@@ -172,7 +185,10 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         console.log(`Uploading file: ${fileName} (${formatFileSize(file.size)})`);
         console.log(`Path: ${filePath}`);
 
-        // Upload to Supabase Storage
+        // Update progress for upload start
+        setUploadProgress(((i + 0.3) / files.length) * 100);
+
+        // Upload to Supabase Storage with progress tracking
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('chess-games')
           .upload(filePath, file, {
@@ -186,6 +202,9 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         }
 
         console.log('File uploaded successfully:', uploadData?.path);
+
+        // Update progress for database record creation
+        setUploadProgress(((i + 0.7) / files.length) * 100);
 
         // Create database record
         const { data: fileRecord, error: dbError } = await supabase
@@ -213,6 +232,8 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         console.log('File record created:', fileRecord);
         
         uploadedFileRecords.push(fileRecord);
+        
+        // Update progress for completed file
         setUploadProgress(((i + 1) / files.length) * 100);
       }
 
