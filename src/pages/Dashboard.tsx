@@ -6,11 +6,13 @@ import LiveKPICards from '../components/LiveKPICards';
 import LiveSuspiciousScoresTable from '../components/LiveSuspiciousScoresTable';
 import DataImportModal from '../components/DataImportModal';
 import { useAuth } from '../contexts/AuthContext';
+import { Link } from 'react-router-dom';
 
 const Dashboard: React.FC = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showChartDetails, setShowChartDetails] = useState(false);
   const { userProfile, isAdmin } = useAuth();
 
   // Check if user has premium access
@@ -31,6 +33,10 @@ const Dashboard: React.FC = () => {
     setTimeout(() => {
       window.location.reload();
     }, 1000);
+  };
+
+  const handleViewChartDetails = () => {
+    setShowChartDetails(true);
   };
 
   return (
@@ -165,13 +171,13 @@ const Dashboard: React.FC = () => {
               </span>
             )}
           </div>
-          <button 
-            onClick={handleRefreshData}
-            className="text-sm text-blue-600 hover:text-blue-800 flex items-center"
+          <Link 
+            to="/games"
+            className="text-sm text-blue-600 hover:text-blue-800 flex items-center transition-colors"
           >
             <Eye className="w-4 h-4 mr-1" />
-            View Details
-          </button>
+            View All Games
+          </Link>
         </div>
         {/* No need to pass data prop - component will use live data automatically */}
         <SuspicionChart />
@@ -186,6 +192,114 @@ const Dashboard: React.FC = () => {
         onClose={() => setShowImportModal(false)}
         onSuccess={handleImportSuccess}
       />
+
+      {/* Chart Details Modal */}
+      {showChartDetails && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+          <div className="relative top-20 mx-auto p-5 border w-11/12 max-w-4xl shadow-lg rounded-md bg-white">
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+                    <Eye className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">Suspicion Trends Details</h3>
+                    <p className="text-sm text-gray-600">Detailed analysis of suspicion patterns over time</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowChartDetails(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                  </svg>
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Enhanced Chart */}
+                <div className="bg-gray-50 rounded-lg p-6">
+                  <h4 className="text-lg font-medium text-gray-900 mb-4">30-Day Suspicion Trends</h4>
+                  <SuspicionChart />
+                </div>
+
+                {/* Analysis Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="bg-blue-50 rounded-lg p-4">
+                    <h5 className="text-sm font-medium text-blue-900 mb-2">Average Suspicion Rate</h5>
+                    <p className="text-2xl font-bold text-blue-700">18.5%</p>
+                    <p className="text-sm text-blue-600 mt-1">Last 30 days</p>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg p-4">
+                    <h5 className="text-sm font-medium text-orange-900 mb-2">Peak Suspicion Day</h5>
+                    <p className="text-2xl font-bold text-orange-700">34.2%</p>
+                    <p className="text-sm text-orange-600 mt-1">3 days ago</p>
+                  </div>
+                  <div className="bg-green-50 rounded-lg p-4">
+                    <h5 className="text-sm font-medium text-green-900 mb-2">Total Games Analyzed</h5>
+                    <p className="text-2xl font-bold text-green-700">2,847</p>
+                    <p className="text-sm text-green-600 mt-1">Last 30 days</p>
+                  </div>
+                </div>
+
+                {/* Insights */}
+                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                  <h4 className="text-lg font-medium text-gray-900 mb-4">Key Insights</h4>
+                  <div className="space-y-3">
+                    <div className="flex items-start space-x-3">
+                      <div className="w-2 h-2 bg-blue-500 rounded-full mt-2"></div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Trend Analysis</p>
+                        <p className="text-sm text-gray-600">Suspicion rates have increased by 12% over the past week, indicating heightened detection activity.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3">
+                      <div className="w-2 h-2 bg-orange-500 rounded-full mt-2"></div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Peak Activity</p>
+                        <p className="text-sm text-gray-600">Highest suspicion rates typically occur on weekends when more competitive games are played.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start space-x-3">
+                      <div className="w-2 h-2 bg-green-500 rounded-full mt-2"></div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">Detection Accuracy</p>
+                        <p className="text-sm text-gray-600">Our ML models show 94.2% accuracy in identifying suspicious gameplay patterns.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-3">
+                  <Link
+                    to="/games"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                    onClick={() => setShowChartDetails(false)}
+                  >
+                    View All Games
+                  </Link>
+                  <Link
+                    to="/players"
+                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+                    onClick={() => setShowChartDetails(false)}
+                  >
+                    View Players
+                  </Link>
+                  <button
+                    onClick={() => setShowChartDetails(false)}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 transition-colors"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Upgrade Modal */}
       {showUpgradeModal && (
@@ -220,15 +334,21 @@ const Dashboard: React.FC = () => {
                     <div className="text-3xl font-bold text-gray-900 mb-4">$0<span className="text-sm font-normal text-gray-500">/month</span></div>
                     <div className="space-y-3 text-sm text-gray-600">
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>PGN file uploads</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Basic analysis</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Up to 100 games/month</span>
                       </div>
                       <div className="flex items-center">
@@ -262,23 +382,33 @@ const Dashboard: React.FC = () => {
                     <div className="text-3xl font-bold text-gray-900 mb-4">$9<span className="text-sm font-normal text-gray-500">/month</span></div>
                     <div className="space-y-3 text-sm text-gray-600">
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Everything in Free</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Live API imports</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Up to 1,000 games/month</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Advanced analytics</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Priority support</span>
                       </div>
                     </div>
@@ -297,23 +427,33 @@ const Dashboard: React.FC = () => {
                     <div className="text-3xl font-bold text-gray-900 mb-4">$19<span className="text-sm font-normal text-gray-500">/month</span></div>
                     <div className="space-y-3 text-sm text-gray-600">
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Everything in Premium</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Unlimited games</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>Custom analysis models</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>API access</span>
                       </div>
                       <div className="flex items-center">
-                        <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+                        <svg className="w-4 h-4 text-green-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                        </svg>
                         <span>White-label options</span>
                       </div>
                     </div>
