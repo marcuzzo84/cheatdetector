@@ -29,7 +29,7 @@ interface ParsedGame {
 
 const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'upload' | 'paste'>('paste');
+  const [activeTab, setActiveTab] = useState<'paste' | 'upload'>('paste');
   const [pgnContent, setPgnContent] = useState('');
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState('');
@@ -62,18 +62,27 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
         return;
       }
 
-      // Split games by looking for [Event headers or double newlines
+      console.log('Starting PGN parsing...');
+      console.log('Content length:', cleanContent.length);
+
+      // Enhanced game splitting logic
       let gameBlocks: string[] = [];
       
-      // First try splitting by [Event headers
+      // Method 1: Split by [Event headers (most reliable)
       if (cleanContent.includes('[Event')) {
         gameBlocks = cleanContent.split(/(?=\[Event)/g).filter(block => block.trim());
-      } else {
-        // Fallback to double newlines
+        console.log(`Split by [Event headers: ${gameBlocks.length} blocks`);
+      } 
+      // Method 2: Split by double newlines
+      else if (cleanContent.includes('\n\n')) {
         gameBlocks = cleanContent.split(/\n\s*\n/).filter(block => block.trim());
+        console.log(`Split by double newlines: ${gameBlocks.length} blocks`);
       }
-
-      console.log(`Found ${gameBlocks.length} potential game blocks`);
+      // Method 3: Treat as single game
+      else {
+        gameBlocks = [cleanContent];
+        console.log('Treating as single game');
+      }
 
       const games: ParsedGame[] = [];
       const parseErrors: string[] = [];
@@ -83,23 +92,30 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
         if (!block) continue;
 
         try {
-          const game = parseSingleGame(block);
+          const game = parseSingleGame(block, blockIndex + 1);
           if (game && game.white && game.black && game.moves) {
             games.push(game);
+            console.log(`Successfully parsed game ${blockIndex + 1}: ${game.white} vs ${game.black}`);
           } else {
-            parseErrors.push(`Game ${blockIndex + 1}: Missing required fields (white, black, or moves)`);
+            const missingFields = [];
+            if (!game?.white) missingFields.push('white player');
+            if (!game?.black) missingFields.push('black player');
+            if (!game?.moves) missingFields.push('moves');
+            parseErrors.push(`Game ${blockIndex + 1}: Missing ${missingFields.join(', ')}`);
           }
         } catch (gameError) {
+          console.error(`Error parsing game ${blockIndex + 1}:`, gameError);
           parseErrors.push(`Game ${blockIndex + 1}: ${gameError instanceof Error ? gameError.message : 'Parse error'}`);
         }
       }
 
-      console.log(`Successfully parsed ${games.length} games`);
+      console.log(`Parsing complete: ${games.length} valid games, ${parseErrors.length} errors`);
       
       if (games.length === 0) {
-        setError('No valid games found in PGN content. Please check the format.');
+        setError('No valid games found in PGN content. Please check the format and ensure it contains complete game data.');
         if (parseErrors.length > 0) {
           console.warn('Parse errors:', parseErrors);
+          setError(`No valid games found. Errors: ${parseErrors.slice(0, 3).join('; ')}`);
         }
       } else {
         setParsedGames(games);
@@ -107,21 +123,23 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
         setSuccess(`Successfully parsed ${games.length} games from PGN content`);
         
         if (parseErrors.length > 0) {
-          setError(`Parsed ${games.length} games, but ${parseErrors.length} games had errors`);
+          setError(`Parsed ${games.length} games successfully, but ${parseErrors.length} games had errors`);
         }
       }
       
       setProgress('');
     } catch (err) {
       console.error('PGN parsing error:', err);
-      setError('Failed to parse PGN content. Please check the format.');
+      setError('Failed to parse PGN content. Please check the format and try again.');
       setProgress('');
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const parseSingleGame = (gameText: string): ParsedGame | null => {
+  const parseSingleGame = (gameText: string, gameNumber: number): ParsedGame | null => {
+    console.log(`Parsing game ${gameNumber}...`);
+    
     const lines = gameText.split('\n').map(line => line.trim()).filter(line => line);
     const headers: { [key: string]: string } = {};
     const moveLines: string[] = [];
@@ -143,6 +161,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
     }
 
     if (!inMoves || moveLines.length === 0) {
+      console.warn(`Game ${gameNumber}: No moves found`);
       return null;
     }
 
@@ -157,7 +176,22 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
 
     // Validate that we have actual moves (should contain numbers and letters)
     if (!moves || moves.length < 5 || !/\d+\./.test(moves)) {
+      console.warn(`Game ${gameNumber}: Invalid moves format`);
       return null;
+    }
+
+    // Try to extract player names from headers
+    const white = headers.white || 'Unknown';
+    const black = headers.black || 'Unknown';
+    
+    // If we don't have player names, try to extract from the first line
+    if (white === 'Unknown' && black === 'Unknown' && lines.length > 0) {
+      const firstLine = lines[0];
+      const playerMatch = firstLine.match(/([A-Za-z0-9_]+)\s+vs\.\s+([A-Za-z0-9_]+)/);
+      if (playerMatch) {
+        headers.white = playerMatch[1];
+        headers.black = playerMatch[2];
+      }
     }
 
     return {
@@ -514,12 +548,12 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                   placeholder="Paste your PGN content here... (supports multiple games)
 
 Example:
-[Event &quot;Rated Blitz game&quot;]
-[Site &quot;lichess.org&quot;]
-[Date &quot;2024.01.15&quot;]
-[White &quot;PlayerName&quot;]
-[Black &quot;Opponent&quot;]
-[Result &quot;1-0&quot;]
+[Event \"Rated Blitz game\"]
+[Site \"lichess.org\"]
+[Date \"2024.01.15\"]
+[White \"PlayerName\"]
+[Black \"Opponent\"]
+[Result \"1-0\"]
 
 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0"
                   className="w-full h-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"

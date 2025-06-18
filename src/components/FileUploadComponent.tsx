@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Upload, FileText, AlertTriangle, CheckCircle, Loader2, Trash2, Eye, Download } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { useAuth } from '../contexts/AuthContext';
@@ -45,25 +45,36 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
     pgn_files: number;
     pgn_size: number;
   } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (user) {
       fetchUploadedFiles();
       fetchStorageUsage();
+    } else {
+      setIsLoading(false);
     }
   }, [user]);
 
   const fetchUploadedFiles = async () => {
     try {
+      setIsLoading(true);
       const { data, error } = await supabase
         .from('uploaded_files')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching uploaded files:', error);
+        throw error;
+      }
+      
       setUploadedFiles(data || []);
     } catch (err) {
       console.error('Error fetching uploaded files:', err);
+      setError('Failed to load your uploaded files. Please try refreshing the page.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -72,10 +83,15 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
       const { data, error } = await supabase
         .rpc('get_user_storage_usage');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching storage usage:', error);
+        throw error;
+      }
+      
       setStorageUsage(data?.[0] || null);
     } catch (err) {
       console.error('Error fetching storage usage:', err);
+      // Don't show error for storage usage - it's not critical
     }
   };
 
@@ -150,8 +166,11 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         // Create file path
         const fileExtension = file.name.split('.').pop()?.toLowerCase();
         const fileType = fileExtension === 'pgn' ? 'pgn' : 'analysis';
-        const fileName = `${Date.now()}_${file.name}`;
+        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
         const filePath = `users/${user.id}/${fileType}/${fileName}`;
+
+        console.log(`Uploading file: ${fileName} (${formatFileSize(file.size)})`);
+        console.log(`Path: ${filePath}`);
 
         // Upload to Supabase Storage
         const { data: uploadData, error: uploadError } = await supabase.storage
@@ -162,8 +181,11 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
           });
 
         if (uploadError) {
+          console.error('Upload error:', uploadError);
           throw new Error(`Upload failed: ${uploadError.message}`);
         }
+
+        console.log('File uploaded successfully:', uploadData?.path);
 
         // Create database record
         const { data: fileRecord, error: dbError } = await supabase
@@ -184,9 +206,12 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
           .single();
 
         if (dbError) {
+          console.error('Database error:', dbError);
           throw new Error(`Database error: ${dbError.message}`);
         }
 
+        console.log('File record created:', fileRecord);
+        
         uploadedFileRecords.push(fileRecord);
         setUploadProgress(((i + 1) / files.length) * 100);
       }
@@ -198,9 +223,12 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
       await fetchStorageUsage();
 
       // Notify parent component
-      uploadedFileRecords.forEach(file => onFileUploaded?.(file));
+      if (uploadedFileRecords.length > 0) {
+        onFileUploaded?.(uploadedFileRecords[0]);
+      }
 
     } catch (err) {
+      console.error('Upload error:', err);
       setError(err instanceof Error ? err.message : 'Upload failed');
     } finally {
       setUploading(false);
@@ -221,6 +249,7 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         .remove([filePath]);
 
       if (storageError) {
+        console.error('Storage deletion error:', storageError);
         throw new Error(`Storage deletion failed: ${storageError.message}`);
       }
 
@@ -231,6 +260,7 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         .eq('id', fileId);
 
       if (dbError) {
+        console.error('Database deletion error:', dbError);
         throw new Error(`Database deletion failed: ${dbError.message}`);
       }
 
@@ -240,6 +270,7 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
       
       setSuccess('File deleted successfully');
     } catch (err) {
+      console.error('Deletion error:', err);
       setError(err instanceof Error ? err.message : 'Deletion failed');
     }
   };
@@ -251,6 +282,7 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         .download(filePath);
 
       if (error) {
+        console.error('Download error:', error);
         throw new Error(`Download failed: ${error.message}`);
       }
 
@@ -264,6 +296,7 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (err) {
+      console.error('Download error:', err);
       setError(err instanceof Error ? err.message : 'Download failed');
     }
   };
@@ -392,8 +425,16 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         </div>
       )}
 
+      {/* Loading State */}
+      {isLoading && (
+        <div className="text-center py-4">
+          <Loader2 className="w-6 h-6 mx-auto text-blue-500 animate-spin mb-2" />
+          <p className="text-gray-500">Loading your files...</p>
+        </div>
+      )}
+
       {/* Uploaded Files List */}
-      {uploadedFiles.length > 0 && (
+      {!isLoading && uploadedFiles.length > 0 && (
         <div className="bg-white border border-gray-200 rounded-lg">
           <div className="px-4 py-3 border-b border-gray-200">
             <h4 className="font-medium text-gray-900">Your Uploaded Files</h4>
@@ -435,6 +476,17 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!isLoading && uploadedFiles.length === 0 && (
+        <div className="text-center py-6 bg-gray-50 rounded-lg border border-gray-200">
+          <FileText className="w-12 h-12 mx-auto text-gray-300 mb-2" />
+          <p className="text-gray-600 mb-1">No files uploaded yet</p>
+          <p className="text-sm text-gray-500">
+            Upload PGN files to analyze your chess games
+          </p>
         </div>
       )}
     </div>
