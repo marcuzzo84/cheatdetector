@@ -99,7 +99,7 @@
 }
 
 .dark .text-gray-700 {
-  @apply text-gray-300;
+  color: #d1d5db;
 }
 
 .dark .text-gray-600 {
@@ -111,7 +111,7 @@
 }
 
 .dark .text-gray-400 {
-  @apply text-gray-300;
+  color: #d1d5db;
 }
 
 .dark .border-gray-200 {
