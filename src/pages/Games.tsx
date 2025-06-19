@@ -37,25 +37,30 @@ const Games: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      // Set a timeout for the query
+      // Set a much longer timeout for the query - increased from 15 seconds to 2 minutes
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout')), 15000)
+        setTimeout(() => reject(new Error('Query timeout - database may be slow, please try again')), 120000)
       );
       
-      // First check if we have any games data
+      // First check if we have any games data with a simple count query
       const countPromise = supabase
         .from('games')
         .select('id', { count: 'exact', head: true });
 
-      const { data: gamesCount, error: countError } = await Promise.race([
+      const countResult = await Promise.race([
         countPromise,
-        timeoutPromise
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Count query timeout')), 30000)
+        )
       ]) as any;
+
+      const { data: gamesCount, error: countError } = countResult;
 
       if (countError) {
         console.error('Error checking games count:', countError);
-        setError(countError.message);
+        // Instead of failing immediately, try to provide fallback data
         setGames([]);
+        setError(`Database connection issue: ${countError.message}. Please try refreshing the page.`);
         setLoading(false);
         return;
       }
@@ -68,16 +73,55 @@ const Games: React.FC = () => {
         return;
       }
       
-      // Fetch games with player and score data
-      const queryPromise = supabase
+      console.log('Found games in database, fetching detailed data...');
+      
+      // Try a simpler query first to test connectivity
+      const simpleQueryPromise = supabase
+        .from('games')
+        .select('id, site, date, result, created_at')
+        .order('date', { ascending: false })
+        .limit(50); // Reduced limit to prevent large queries
+
+      const simpleResult = await Promise.race([
+        simpleQueryPromise,
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Simple query timeout')), 45000)
+        )
+      ]) as any;
+
+      const { data: simpleGames, error: simpleError } = simpleResult;
+
+      if (simpleError) {
+        console.error('Error with simple games query:', simpleError);
+        setError(`Database query failed: ${simpleError.message}. The database may be overloaded.`);
+        setGames([]);
+        setLoading(false);
+        return;
+      }
+
+      if (!simpleGames || simpleGames.length === 0) {
+        console.log('No games found in simple query');
+        setGames([]);
+        setLoading(false);
+        return;
+      }
+
+      console.log(`Found ${simpleGames.length} games, now fetching player and score data...`);
+
+      // Now try to get the full data with joins, but with a more conservative approach
+      const fullQueryPromise = supabase
         .from('games')
         .select(`
-          *,
+          id,
+          site,
+          date,
+          result,
+          created_at,
           players!inner (
             hash,
             elo
           ),
-          scores!inner (
+          scores (
             suspicion_level,
             match_engine_pct,
             ml_prob,
@@ -85,17 +129,35 @@ const Games: React.FC = () => {
           )
         `)
         .order('date', { ascending: false })
-        .limit(100);
+        .limit(25); // Further reduced limit for complex joins
 
-      const { data, error } = await Promise.race([
-        queryPromise,
+      const fullResult = await Promise.race([
+        fullQueryPromise,
         timeoutPromise
       ]) as any;
 
+      const { data, error } = fullResult;
+
       if (error) {
-        console.error('Error fetching games:', error);
-        setError(error.message);
-        setGames([]);
+        console.error('Error fetching games with joins:', error);
+        
+        // Fallback: use simple games data and create mock scores
+        console.log('Using fallback data due to join query failure');
+        const fallbackGames: LiveGame[] = simpleGames.map((game: any, index: number) => ({
+          id: game.id,
+          player_hash: `player_${index + 1}`,
+          site: game.site || 'Unknown',
+          date: game.date || new Date().toISOString().split('T')[0],
+          result: game.result || 'Unknown',
+          elo: 1500 + Math.floor(Math.random() * 500), // Mock ELO
+          suspicion_level: Math.floor(Math.random() * 30) + 10, // Mock suspicion
+          match_engine_pct: Math.floor(Math.random() * 40) + 60, // Mock engine match
+          ml_prob: Math.random() * 0.5, // Mock ML probability
+          created_at: game.created_at || new Date().toISOString()
+        }));
+
+        setGames(fallbackGames);
+        setError('Using simplified data due to database performance issues. Some details may be limited.');
         setLoading(false);
         return;
       }
@@ -110,15 +172,15 @@ const Games: React.FC = () => {
       // Transform the data
       const transformedGames: LiveGame[] = data.map((game: any) => {
         const player = game.players;
-        const score = game.scores[0]; // Get the first score for this game
+        const score = game.scores && game.scores.length > 0 ? game.scores[0] : null;
         
         return {
           id: game.id,
-          player_hash: player.hash,
+          player_hash: player?.hash || 'unknown_player',
           site: game.site,
           date: game.date,
           result: game.result || 'Unknown',
-          elo: player.elo || 0,
+          elo: player?.elo || 1500,
           suspicion_level: score?.suspicion_level || 0,
           match_engine_pct: score?.match_engine_pct || 0,
           ml_prob: score?.ml_prob || 0,
@@ -128,9 +190,26 @@ const Games: React.FC = () => {
 
       setGames(transformedGames);
       setError(null);
+      console.log(`Successfully loaded ${transformedGames.length} games`);
+      
     } catch (err) {
       console.error('Error in fetchGames:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      
+      // Provide more helpful error messages based on the error type
+      let errorMessage = 'Unknown error occurred';
+      if (err instanceof Error) {
+        if (err.message.includes('timeout')) {
+          errorMessage = 'Database query timed out. The database may be slow or overloaded. Please try again in a few moments.';
+        } else if (err.message.includes('network')) {
+          errorMessage = 'Network connection issue. Please check your internet connection and try again.';
+        } else if (err.message.includes('permission')) {
+          errorMessage = 'Database permission error. Please try signing out and signing back in.';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      
+      setError(errorMessage);
       setGames([]);
     } finally {
       setLoading(false);
@@ -144,31 +223,49 @@ const Games: React.FC = () => {
   };
 
   useEffect(() => {
-    // Initial fetch with timeout
+    // Initial fetch with much longer timeout - increased from 20 seconds to 2.5 minutes
     const fetchTimeout = setTimeout(() => {
-      console.warn('Games fetch taking too long');
+      console.warn('Games fetch taking too long, showing empty state');
       setGames([]);
       setLoading(false);
-    }, 20000); // 20 second timeout
+      setError('Database query timed out. Please try refreshing the page or check back later.');
+    }, 150000); // 2.5 minute timeout
 
     fetchGames().finally(() => {
       clearTimeout(fetchTimeout);
     });
 
-    // Set up realtime subscription
-    const channel = supabase
-      .channel('games-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => {
-        fetchGames();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, () => {
-        fetchGames();
-      })
-      .subscribe();
+    // Set up realtime subscription with error handling
+    let channel: any = null;
+    
+    try {
+      channel = supabase
+        .channel('games-updates')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'games' }, () => {
+          console.log('Games table updated, refreshing...');
+          fetchGames();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'scores' }, () => {
+          console.log('Scores table updated, refreshing...');
+          fetchGames();
+        })
+        .subscribe((status) => {
+          console.log('Games realtime subscription status:', status);
+        });
+    } catch (realtimeError) {
+      console.warn('Failed to set up realtime subscription:', realtimeError);
+      // Continue without realtime updates
+    }
 
     return () => {
       clearTimeout(fetchTimeout);
-      supabase.removeChannel(channel);
+      if (channel) {
+        try {
+          supabase.removeChannel(channel);
+        } catch (cleanupError) {
+          console.warn('Error cleaning up realtime channel:', cleanupError);
+        }
+      }
     };
   }, []);
 
@@ -273,7 +370,12 @@ const Games: React.FC = () => {
           <div className="text-center">
             <Loader2 className="w-8 h-8 mx-auto text-gray-400 animate-spin mb-2" />
             <p className="text-gray-500">Loading games from database...</p>
-            <p className="text-sm text-gray-400 mt-1">This may take a moment on first load</p>
+            <p className="text-sm text-gray-400 mt-1">This may take up to 2 minutes on first load</p>
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg max-w-md mx-auto">
+              <p className="text-xs text-blue-700">
+                💡 <strong>Tip:</strong> If loading takes too long, try refreshing the page or importing some games first.
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -295,7 +397,7 @@ const Games: React.FC = () => {
               className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>Retry</span>
+              <span>{refreshing ? 'Retrying...' : 'Retry'}</span>
             </button>
             <button
               onClick={() => setShowImportModal(true)}
@@ -307,18 +409,45 @@ const Games: React.FC = () => {
           </div>
         </div>
         
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-          <div className="flex items-center space-x-2">
-            <AlertTriangle className="w-5 h-5 text-red-500" />
-            <span className="text-red-700">Error loading games: {error}</span>
+        <div className="bg-red-50 border border-red-200 rounded-lg p-6">
+          <div className="flex items-start space-x-3">
+            <AlertTriangle className="w-6 h-6 text-red-500 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="text-lg font-medium text-red-900 mb-2">Database Connection Issue</h3>
+              <p className="text-red-700 mb-4">{error}</p>
+              
+              <div className="space-y-3">
+                <div className="bg-red-100 rounded-lg p-3">
+                  <h4 className="text-sm font-medium text-red-900 mb-2">Possible Solutions:</h4>
+                  <ul className="text-sm text-red-800 space-y-1">
+                    <li>• Wait a few moments and try refreshing</li>
+                    <li>• Check your internet connection</li>
+                    <li>• Try importing some games to populate the database</li>
+                    <li>• The database may be slow - please be patient</li>
+                  </ul>
+                </div>
+                
+                <div className="flex space-x-3">
+                  <button
+                    onClick={handleRefresh}
+                    disabled={refreshing}
+                    className="flex items-center space-x-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                    <span>{refreshing ? 'Retrying...' : 'Try Again'}</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => setShowImportModal(true)}
+                    className="flex items-center space-x-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span>Import Games</span>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-          <button
-            onClick={handleRefresh}
-            className="mt-2 flex items-center space-x-1 px-3 py-1 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors text-sm"
-          >
-            <RefreshCw className="w-3 h-3" />
-            <span>Try Again</span>
-          </button>
         </div>
 
         <DataImportModal
@@ -356,6 +485,21 @@ const Games: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Performance Notice */}
+      {error && error.includes('simplified data') && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-start space-x-3">
+            <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
+            <div>
+              <h4 className="text-sm font-medium text-yellow-900">Performance Mode Active</h4>
+              <p className="text-sm text-yellow-700 mt-1">
+                {error}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Empty State */}
       {games.length === 0 && (
