@@ -110,7 +110,7 @@
   @apply text-gray-500;
 }
 
-.dark .text-gray-400 {
+.dark .text-gray-400-custom {
   color: #d1d5db;
 }
 
