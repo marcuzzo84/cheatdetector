@@ -211,34 +211,68 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
   const handleFileUploaded = async (uploadedFile: any) => {
     try {
       setProgress('Reading uploaded PGN file...');
+      setError('');
+      
+      // Add timeout for file reading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('File reading timeout')), 30000)
+      );
       
       // Download the file content from Supabase Storage
-      const { data, error } = await supabase.storage
+      const downloadPromise = supabase.storage
         .from('chess-games')
         .download(uploadedFile.file_path);
+
+      const { data, error } = await Promise.race([
+        downloadPromise,
+        timeoutPromise
+      ]) as any;
 
       if (error) {
         throw new Error(`Failed to read file: ${error.message}`);
       }
 
-      // Convert blob to text
-      const text = await data.text();
+      setProgress('Converting file to text...');
+      
+      // Convert blob to text with timeout
+      const textPromise = data.text();
+      const textTimeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Text conversion timeout')), 15000)
+      );
+
+      const text = await Promise.race([
+        textPromise,
+        textTimeoutPromise
+      ]) as string;
+
+      if (!text || text.trim().length === 0) {
+        throw new Error('File appears to be empty or could not be read');
+      }
+
       setPgnContent(text);
       
-      // Parse the content
+      setProgress('Parsing PGN content...');
+      
+      // Parse the content with error handling
       await parsePGNContent(text);
       
       // Update the file record to mark it as processed
-      await supabase
-        .from('uploaded_files')
-        .update({ 
-          processed: true,
-          games_count: parsedGames.length 
-        })
-        .eq('id', uploadedFile.id);
+      try {
+        await supabase
+          .from('uploaded_files')
+          .update({ 
+            processed: true,
+            games_count: parsedGames.length 
+          })
+          .eq('id', uploadedFile.id);
+      } catch (updateError) {
+        console.warn('Failed to update file record:', updateError);
+        // Don't fail the entire process for this
+      }
 
       setProgress('');
     } catch (err) {
+      console.error('File processing error:', err);
       setError(err instanceof Error ? err.message : 'Failed to process uploaded file');
       setProgress('');
     }
@@ -261,24 +295,33 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
     setImportProgress({ current: 0, total: parsedGames.length });
 
     try {
-      // Create or find player
+      // Create or find player with timeout
       let playerId: string;
       const playerHash = `${selectedSite}_${playerUsername.toLowerCase()}`;
       
       setProgress('Creating player record...');
       
-      const { data: existingPlayer, error: playerFetchError } = await supabase
+      const playerTimeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Player creation timeout')), 15000)
+      );
+      
+      const playerQueryPromise = supabase
         .from('players')
         .select('id')
         .eq('hash', playerHash)
         .single();
 
+      const { data: existingPlayer, error: playerFetchError } = await Promise.race([
+        playerQueryPromise,
+        playerTimeoutPromise
+      ]) as any;
+
       if (existingPlayer) {
         playerId = existingPlayer.id;
         console.log('Using existing player:', playerId);
       } else {
-        // Create new player
-        const { data: newPlayer, error: playerCreateError } = await supabase
+        // Create new player with timeout
+        const createPlayerPromise = supabase
           .from('players')
           .insert({
             hash: playerHash,
@@ -286,6 +329,11 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
           })
           .select('id')
           .single();
+
+        const { data: newPlayer, error: playerCreateError } = await Promise.race([
+          createPlayerPromise,
+          playerTimeoutPromise
+        ]) as any;
 
         if (playerCreateError) {
           throw new Error(`Failed to create player: ${playerCreateError.message}`);
@@ -299,12 +347,12 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       const errors: string[] = [];
 
       // Process games in smaller batches to avoid timeouts
-      const batchSize = 3; // Reduced batch size
+      const batchSize = 2; // Reduced batch size further
       for (let i = 0; i < parsedGames.length; i += batchSize) {
         const batch = parsedGames.slice(i, i + batchSize);
         setProgress(`Processing games ${i + 1}-${Math.min(i + batchSize, parsedGames.length)} of ${parsedGames.length}...`);
 
-        // Process each game in the batch sequentially
+        // Process each game in the batch sequentially with timeout
         for (let j = 0; j < batch.length; j++) {
           const gameIndex = i + j;
           const game = batch[j];
@@ -342,8 +390,12 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
               }
             }
 
-            // Create game record
-            const { data: gameRecord, error: gameError } = await supabase
+            // Create game record with timeout
+            const gameTimeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Game creation timeout')), 10000)
+            );
+
+            const gameInsertPromise = supabase
               .from('games')
               .insert({
                 player_id: playerId,
@@ -354,6 +406,11 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
               })
               .select('id')
               .single();
+
+            const { data: gameRecord, error: gameError } = await Promise.race([
+              gameInsertPromise,
+              gameTimeoutPromise
+            ]) as any;
 
             if (gameError) {
               console.error('Game creation error:', gameError);
@@ -386,7 +443,12 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
             engineMatch = Math.min(engineMatch, 100);
             mlProb = Math.min(mlProb, 1.0);
 
-            const { error: scoreError } = await supabase
+            // Create score record with timeout
+            const scoreTimeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Score creation timeout')), 10000)
+            );
+
+            const scoreInsertPromise = supabase
               .from('scores')
               .insert({
                 game_id: gameRecord.id,
@@ -396,6 +458,11 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
                 run_perfect: Math.floor(Math.random() * Math.min(moveCount / 5, 15)),
                 delta_cp: Math.random() * 50 + 10
               });
+
+            const { error: scoreError } = await Promise.race([
+              scoreInsertPromise,
+              scoreTimeoutPromise
+            ]) as any;
 
             if (scoreError) {
               console.error('Score creation error:', scoreError);
@@ -412,12 +479,12 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
           }
 
           // Small delay between games to prevent overwhelming the database
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
 
-        // Delay between batches
+        // Longer delay between batches
         if (i + batchSize < parsedGames.length) {
-          await new Promise(resolve => setTimeout(resolve, 300));
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
 
@@ -429,7 +496,11 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
         
         // Update sync cursor for tracking
         try {
-          await supabase
+          const syncTimeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Sync cursor timeout')), 5000)
+          );
+
+          const syncUpsertPromise = supabase
             .from('sync_cursor')
             .upsert({
               site: selectedSite === 'chess.com' ? 'Chess.com' : 'Lichess',
@@ -438,6 +509,11 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
               total_imported: importedCount,
               last_game_id: `pgn_import_${Date.now()}`
             });
+
+          await Promise.race([
+            syncUpsertPromise,
+            syncTimeoutPromise
+          ]);
         } catch (cursorError) {
           console.warn('Failed to update sync cursor:', cursorError);
           // Don't fail the import for this
