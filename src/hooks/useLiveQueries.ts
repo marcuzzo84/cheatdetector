@@ -236,9 +236,9 @@ export const useLiveSuspiciousScores = () => {
     try {
       setError(null);
       
-      // Set a timeout for the query - increased from 10 seconds to 30 seconds
+      // Set a timeout for the query - increased from 30 seconds to 120 seconds
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout')), 30000)
+        setTimeout(() => reject(new Error('Query timeout')), 120000)
       );
       
       // First check if we have any scores data
