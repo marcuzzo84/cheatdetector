@@ -582,9 +582,9 @@ export const useLiveDailySuspicionView = () => {
     try {
       setError(null);
       
-      // Set a timeout for the query - increased from 10 seconds to 30 seconds
+      // Set a timeout for the query - increased from 30 seconds to 60 seconds
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout')), 30000)
+        setTimeout(() => reject(new Error('Query timeout')), 60000)
       );
       
       // First check if we have any data
@@ -680,13 +680,13 @@ export const useLiveDailySuspicionView = () => {
   };
 
   useEffect(() => {
-    // Initial fetch with timeout
+    // Initial fetch with timeout - increased from 15 seconds to 65 seconds
     const fetchTimeout = setTimeout(() => {
       console.warn('Daily suspicion view fetch taking too long');
       setDailyData(generateFallbackDailyData());
       setIsLive(false);
       setLoading(false);
-    }, 15000); // 15 second timeout
+    }, 65000);
 
     fetchDailyData().finally(() => {
       clearTimeout(fetchTimeout);
