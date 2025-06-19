@@ -582,9 +582,9 @@ export const useLiveDailySuspicionView = () => {
     try {
       setError(null);
       
-      // Set a timeout for the query
+      // Set a timeout for the query - increased from 10 seconds to 30 seconds
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout')), 10000)
+        setTimeout(() => reject(new Error('Query timeout')), 30000)
       );
       
       // First check if we have any data
