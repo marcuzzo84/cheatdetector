@@ -215,7 +215,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       
       // Add timeout for file reading
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('File reading timeout')), 30000)
+        setTimeout(() => reject(new Error('File reading timeout - please try a smaller file')), 30000)
       );
       
       // Download the file content from Supabase Storage
@@ -237,7 +237,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       // Convert blob to text with timeout
       const textPromise = data.text();
       const textTimeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Text conversion timeout')), 15000)
+        setTimeout(() => reject(new Error('Text conversion timeout - file may be corrupted')), 15000)
       );
 
       const text = await Promise.race([
@@ -302,7 +302,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       setProgress('Creating player record...');
       
       const playerTimeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Player creation timeout')), 15000)
+        setTimeout(() => reject(new Error('Player creation timeout - database may be slow')), 20000)
       );
       
       const playerQueryPromise = supabase
@@ -347,10 +347,10 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
       const errors: string[] = [];
 
       // Process games in smaller batches to avoid timeouts
-      const batchSize = 2; // Reduced batch size further
+      const batchSize = 1; // Process one game at a time to prevent timeouts
       for (let i = 0; i < parsedGames.length; i += batchSize) {
         const batch = parsedGames.slice(i, i + batchSize);
-        setProgress(`Processing games ${i + 1}-${Math.min(i + batchSize, parsedGames.length)} of ${parsedGames.length}...`);
+        setProgress(`Processing game ${i + 1} of ${parsedGames.length}...`);
 
         // Process each game in the batch sequentially with timeout
         for (let j = 0; j < batch.length; j++) {
@@ -392,7 +392,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
 
             // Create game record with timeout
             const gameTimeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Game creation timeout')), 10000)
+              setTimeout(() => reject(new Error('Game creation timeout - database may be slow')), 15000)
             );
 
             const gameInsertPromise = supabase
@@ -445,7 +445,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
 
             // Create score record with timeout
             const scoreTimeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Score creation timeout')), 10000)
+              setTimeout(() => reject(new Error('Score creation timeout - database may be slow')), 15000)
             );
 
             const scoreInsertPromise = supabase
@@ -478,13 +478,13 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
             errors.push(`Game ${gameIndex + 1}: ${gameError instanceof Error ? gameError.message : 'Unknown error'}`);
           }
 
-          // Small delay between games to prevent overwhelming the database
-          await new Promise(resolve => setTimeout(resolve, 200));
+          // Delay between games to prevent overwhelming the database
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
 
         // Longer delay between batches
         if (i + batchSize < parsedGames.length) {
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
 
@@ -497,7 +497,7 @@ const PGNImportModal: React.FC<PGNImportModalProps> = ({ isOpen, onClose, onSucc
         // Update sync cursor for tracking
         try {
           const syncTimeoutPromise = new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Sync cursor timeout')), 5000)
+            setTimeout(() => reject(new Error('Sync cursor timeout')), 10000)
           );
 
           const syncUpsertPromise = supabase
@@ -699,10 +699,10 @@ Example:
 
 1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 1-0`}
                   className="w-full h-64 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm"
-                  disabled={isProcessing}
+                  disabled={isProcessing || loading}
                 />
                 
-                {pgnContent.trim() && !isProcessing && (
+                {pgnContent.trim() && !isProcessing && !loading && (
                   <button
                     onClick={() => parsePGNContent(pgnContent)}
                     disabled={loading || isProcessing}
@@ -713,7 +713,7 @@ Example:
                   </button>
                 )}
                 
-                {isProcessing && (
+                {(isProcessing || loading) && (
                   <div className="flex items-center space-x-2 text-blue-600">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     <span className="text-sm">Processing PGN content...</span>
@@ -891,21 +891,21 @@ Example:
                 <h4 className="text-sm font-medium text-gray-900">Enhanced PGN Processing</h4>
                 <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="font-medium text-green-700">✓ Multiple Games Support</p>
+                    <p className="font-medium text-green-700">✓ Improved Reliability</p>
                     <ul className="text-gray-600 mt-1 space-y-1">
-                      <li>• Automatic game separation</li>
-                      <li>• Batch processing with progress</li>
-                      <li>• Error recovery for individual games</li>
-                      <li>• Robust PGN parsing</li>
+                      <li>• Extended timeout handling</li>
+                      <li>• One-by-one game processing</li>
+                      <li>• Better error recovery</li>
+                      <li>• Progress tracking</li>
                     </ul>
                   </div>
                   <div>
                     <p className="font-medium text-blue-700">⚡ Smart Processing</p>
                     <ul className="text-gray-600 mt-1 space-y-1">
-                      <li>• Handles various PGN formats</li>
-                      <li>• Skips invalid games gracefully</li>
-                      <li>• Progress tracking and feedback</li>
-                      <li>• Detailed error reporting</li>
+                      <li>• Handles large files safely</li>
+                      <li>• Prevents database overload</li>
+                      <li>• Detailed progress feedback</li>
+                      <li>• Graceful error handling</li>
                     </ul>
                   </div>
                 </div>
