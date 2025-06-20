@@ -50,7 +50,7 @@ const Games: React.FC = () => {
       const countResult = await Promise.race([
         countPromise,
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Count query timeout')), 60000)
+          setTimeout(() => reject(new Error('Count query timeout')), 120000)
         )
       ]) as any;
 
@@ -353,7 +353,7 @@ const Games: React.FC = () => {
               disabled={refreshing}
               className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className="w-4 h-4 ${refreshing ? 'animate-spin' : ''}" />
               <span>Refresh</span>
             </button>
             <button
