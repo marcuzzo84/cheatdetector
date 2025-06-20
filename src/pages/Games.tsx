@@ -37,24 +37,10 @@ const Games: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      // Set a much longer timeout for the query - increased from 15 seconds to 2 minutes
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout - database may be slow, please try again')), 120000)
-      );
-      
       // First check if we have any games data with a simple count query
-      const countPromise = supabase
+      const { data: gamesCount, error: countError } = await supabase
         .from('games')
         .select('id', { count: 'exact', head: true });
-
-      const countResult = await Promise.race([
-        countPromise,
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Count query timeout')), 120000)
-        )
-      ]) as any;
-
-      const { data: gamesCount, error: countError } = countResult;
 
       if (countError) {
         console.error('Error checking games count:', countError);
@@ -76,20 +62,11 @@ const Games: React.FC = () => {
       console.log('Found games in database, fetching detailed data...');
       
       // Try a simpler query first to test connectivity
-      const simpleQueryPromise = supabase
+      const { data: simpleGames, error: simpleError } = await supabase
         .from('games')
         .select('id, site, date, result, created_at')
         .order('date', { ascending: false })
         .limit(50); // Reduced limit to prevent large queries
-
-      const simpleResult = await Promise.race([
-        simpleQueryPromise,
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Simple query timeout')), 45000)
-        )
-      ]) as any;
-
-      const { data: simpleGames, error: simpleError } = simpleResult;
 
       if (simpleError) {
         console.error('Error with simple games query:', simpleError);
@@ -109,7 +86,7 @@ const Games: React.FC = () => {
       console.log(`Found ${simpleGames.length} games, now fetching player and score data...`);
 
       // Now try to get the full data with joins, but with a more conservative approach
-      const fullQueryPromise = supabase
+      const { data, error } = await supabase
         .from('games')
         .select(`
           id,
@@ -130,13 +107,6 @@ const Games: React.FC = () => {
         `)
         .order('date', { ascending: false })
         .limit(25); // Further reduced limit for complex joins
-
-      const fullResult = await Promise.race([
-        fullQueryPromise,
-        timeoutPromise
-      ]) as any;
-
-      const { data, error } = fullResult;
 
       if (error) {
         console.error('Error fetching games with joins:', error);
@@ -223,17 +193,7 @@ const Games: React.FC = () => {
   };
 
   useEffect(() => {
-    // Initial fetch with much longer timeout - increased from 20 seconds to 2.5 minutes
-    const fetchTimeout = setTimeout(() => {
-      console.warn('Games fetch taking too long, showing empty state');
-      setGames([]);
-      setLoading(false);
-      setError('Database query timed out. Please try refreshing the page or check back later.');
-    }, 150000); // 2.5 minute timeout
-
-    fetchGames().finally(() => {
-      clearTimeout(fetchTimeout);
-    });
+    fetchGames();
 
     // Set up realtime subscription with error handling
     let channel: any = null;
@@ -258,7 +218,6 @@ const Games: React.FC = () => {
     }
 
     return () => {
-      clearTimeout(fetchTimeout);
       if (channel) {
         try {
           supabase.removeChannel(channel);
@@ -353,7 +312,7 @@ const Games: React.FC = () => {
               disabled={refreshing}
               className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className="w-4 h-4 ${refreshing ? 'animate-spin' : ''}" />
+              <RefreshCw className="w-4 h-4" />
               <span>Refresh</span>
             </button>
             <button
@@ -396,7 +355,7 @@ const Games: React.FC = () => {
               disabled={refreshing}
               className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className="w-4 h-4" />
               <span>{refreshing ? 'Retrying...' : 'Retry'}</span>
             </button>
             <button
@@ -433,7 +392,7 @@ const Games: React.FC = () => {
                     disabled={refreshing}
                     className="flex items-center space-x-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50"
                   >
-                    <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+                    <RefreshCw className="w-4 h-4" />
                     <span>{refreshing ? 'Retrying...' : 'Try Again'}</span>
                   </button>
                   
@@ -473,7 +432,7 @@ const Games: React.FC = () => {
             disabled={refreshing}
             className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className="w-4 h-4" />
             <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
           </button>
           <button
