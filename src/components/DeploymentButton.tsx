@@ -4,13 +4,15 @@ import { useAuth } from '../contexts/AuthContext';
 
 interface DeploymentButtonProps {
   onSuccess?: (deployUrl: string) => void;
+  deployId?: string;
 }
 
-const DeploymentButton: React.FC<DeploymentButtonProps> = ({ onSuccess }) => {
+const DeploymentButton: React.FC<DeploymentButtonProps> = ({ onSuccess, deployId }) => {
   const { isAdmin } = useAuth();
   const [deploying, setDeploying] = useState(false);
   const [deployStatus, setDeployStatus] = useState<'idle' | 'deploying' | 'success' | 'error'>('idle');
   const [deployUrl, setDeployUrl] = useState<string | null>(null);
+  const [claimUrl, setClaimUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleDeploy = async () => {
@@ -22,6 +24,8 @@ const DeploymentButton: React.FC<DeploymentButtonProps> = ({ onSuccess }) => {
     setDeploying(true);
     setDeployStatus('deploying');
     setError(null);
+    setDeployUrl(null);
+    setClaimUrl(null);
 
     try {
       // This would be replaced with actual deployment logic
@@ -30,7 +34,10 @@ const DeploymentButton: React.FC<DeploymentButtonProps> = ({ onSuccess }) => {
       
       // Simulate successful deployment
       const mockDeployUrl = 'https://fairplay-scout-dashboard.netlify.app';
+      const mockClaimUrl = 'https://app.netlify.com/start/deploy?repository=https://github.com/fairplay-scout/dashboard';
+      
       setDeployUrl(mockDeployUrl);
+      setClaimUrl(mockClaimUrl);
       setDeployStatus('success');
       
       if (onSuccess) {
@@ -71,15 +78,34 @@ const DeploymentButton: React.FC<DeploymentButtonProps> = ({ onSuccess }) => {
               <p className="text-sm text-green-700 mt-1">
                 Your application has been successfully deployed to Netlify.
               </p>
-              <a
-                href={deployUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-2 inline-flex items-center space-x-1 text-sm text-blue-600 hover:text-blue-800"
-              >
-                <ExternalLink className="w-4 h-4" />
-                <span>View Deployed Site</span>
-              </a>
+              <div className="mt-2 space-y-2">
+                <a
+                  href={deployUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center space-x-1 text-sm text-blue-600 hover:text-blue-800"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>View Deployed Site</span>
+                </a>
+                
+                {claimUrl && (
+                  <div>
+                    <p className="text-sm text-green-700 mt-1">
+                      Want to manage this deployment yourself?
+                    </p>
+                    <a
+                      href={claimUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center space-x-1 text-sm text-blue-600 hover:text-blue-800"
+                    >
+                      <Rocket className="w-4 h-4" />
+                      <span>Claim this deployment on Netlify</span>
+                    </a>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -92,6 +118,13 @@ const DeploymentButton: React.FC<DeploymentButtonProps> = ({ onSuccess }) => {
             <div>
               <h4 className="text-sm font-medium text-red-800">Deployment Failed</h4>
               <p className="text-sm text-red-700 mt-1">{error}</p>
+              <button
+                onClick={handleDeploy}
+                className="mt-2 inline-flex items-center space-x-1 text-sm text-blue-600 hover:text-blue-800"
+              >
+                <Rocket className="w-4 h-4" />
+                <span>Try Again</span>
+              </button>
             </div>
           </div>
         </div>
