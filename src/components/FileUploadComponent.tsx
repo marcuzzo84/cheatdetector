@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Upload, FileText, AlertTriangle, CheckCircle, Loader2, Trash2, Eye, Download } from 'lucide-react';
+import { Upload, FileText, AlertTriangle, CheckCircle, Loader2, Trash2, Eye, Download, X } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -16,6 +16,7 @@ interface UploadedFile {
   games_count: number;
   processed: boolean;
   created_at: string;
+  metadata?: any;
 }
 
 interface FileUploadComponentProps {
@@ -23,13 +24,15 @@ interface FileUploadComponentProps {
   acceptedTypes?: string[];
   maxSize?: number; // in bytes
   allowMultiple?: boolean;
+  bucketName?: string;
 }
 
 const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
   onFileUploaded,
   acceptedTypes = ['.pgn', '.json'],
   maxSize = 50 * 1024 * 1024, // 50MB default
-  allowMultiple = false
+  allowMultiple = false,
+  bucketName = 'chess-games'
 }) => {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -49,6 +52,7 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
 
   useEffect(() => {
     if (user) {
+      initializeStorage();
       fetchUploadedFiles();
       fetchStorageUsage();
     } else {
@@ -56,13 +60,61 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
     }
   }, [user]);
 
+  const initializeStorage = async () => {
+    try {
+      // Check if bucket exists, create if it doesn't
+      const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+      
+      if (listError) {
+        console.error('Error listing buckets:', listError);
+        return;
+      }
+
+      const bucketExists = buckets?.some(bucket => bucket.name === bucketName);
+      
+      if (!bucketExists) {
+        console.log(`Creating bucket: ${bucketName}`);
+        const { error: createError } = await supabase.storage.createBucket(bucketName, {
+          public: false,
+          allowedMimeTypes: ['application/x-chess-pgn', 'text/plain', 'application/json'],
+          fileSizeLimit: maxSize
+        });
+        
+        if (createError) {
+          console.error('Error creating bucket:', createError);
+          setError(`Failed to initialize storage: ${createError.message}`);
+          return;
+        }
+      }
+
+      // Ensure user folder exists
+      if (user) {
+        const userFolderPath = `users/${user.id}/.keep`;
+        const { error: folderError } = await supabase.storage
+          .from(bucketName)
+          .upload(userFolderPath, new Blob([''], { type: 'text/plain' }), {
+            upsert: true
+          });
+        
+        if (folderError && !folderError.message.includes('already exists')) {
+          console.warn('Could not create user folder:', folderError);
+        }
+      }
+    } catch (error) {
+      console.error('Storage initialization error:', error);
+      setError('Failed to initialize storage system');
+    }
+  };
+
   const fetchUploadedFiles = async () => {
+    if (!user) return;
+
     try {
       setIsLoading(true);
       const { data, error } = await supabase
         .from('uploaded_files')
         .select('*')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -80,12 +132,14 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
   };
 
   const fetchStorageUsage = async () => {
+    if (!user) return;
+
     try {
-      // Create a simple query to get user's file stats
+      // Get user's file stats
       const { data, error } = await supabase
         .from('uploaded_files')
         .select('file_size, file_type')
-        .eq('user_id', user?.id);
+        .eq('user_id', user.id);
 
       if (error) {
         console.error('Error fetching storage usage:', error);
@@ -146,7 +200,20 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
       return `File type not supported. Accepted types: ${acceptedTypes.join(', ')}`;
     }
 
+    // Additional validation for PGN files
+    if (fileExtension === '.pgn') {
+      // We'll do basic content validation after reading the file
+      return null;
+    }
+
     return null;
+  };
+
+  const validatePGNContent = (content: string): boolean => {
+    // Basic PGN validation - check for required headers or move notation
+    const hasHeaders = /\[.*\]/.test(content);
+    const hasMoves = /\d+\./.test(content);
+    return hasHeaders || hasMoves;
   };
 
   const handleFileUpload = async (files: File[]) => {
@@ -182,13 +249,31 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
           return;
         }
 
+        // For PGN files, validate content
+        if (file.name.toLowerCase().endsWith('.pgn')) {
+          try {
+            const content = await file.text();
+            if (!validatePGNContent(content)) {
+              setError(`${file.name} does not appear to be a valid PGN file`);
+              setUploading(false);
+              return;
+            }
+          } catch (readError) {
+            setError(`Could not read file ${file.name}`);
+            setUploading(false);
+            return;
+          }
+        }
+
         // Update progress for validation complete
         setUploadProgress(baseProgress + (10 / totalFiles));
 
-        // Create file path
+        // Create file path with timestamp and sanitized name
         const fileExtension = file.name.split('.').pop()?.toLowerCase();
         const fileType = fileExtension === 'pgn' ? 'pgn' : 'analysis';
-        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const timestamp = Date.now();
+        const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const fileName = `${timestamp}_${sanitizedName}`;
         const filePath = `users/${user.id}/${fileType}/${fileName}`;
 
         console.log(`Uploading file: ${fileName} (${formatFileSize(file.size)})`);
@@ -197,17 +282,43 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
         // Update progress for upload start
         setUploadProgress(baseProgress + (20 / totalFiles));
 
-        // Upload to Supabase Storage with progress tracking
+        // Upload to Supabase Storage
         const { data: uploadData, error: uploadError } = await supabase.storage
-          .from('chess-games')
+          .from(bucketName)
           .upload(filePath, file, {
             cacheControl: '3600',
-            upsert: false
+            upsert: false,
+            contentType: file.type || 'application/octet-stream'
           });
 
         if (uploadError) {
           console.error('Upload error:', uploadError);
-          throw new Error(`Upload failed: ${uploadError.message}`);
+          
+          // Handle specific error cases
+          if (uploadError.message.includes('already exists')) {
+            // Try with a different name
+            const retryFileName = `${timestamp}_${Math.random().toString(36).substring(2)}_${sanitizedName}`;
+            const retryFilePath = `users/${user.id}/${fileType}/${retryFileName}`;
+            
+            const { data: retryData, error: retryError } = await supabase.storage
+              .from(bucketName)
+              .upload(retryFilePath, file, {
+                cacheControl: '3600',
+                upsert: false,
+                contentType: file.type || 'application/octet-stream'
+              });
+              
+            if (retryError) {
+              throw new Error(`Upload failed after retry: ${retryError.message}`);
+            }
+            
+            // Use retry data for the rest of the process
+            uploadData = retryData;
+            filePath = retryFilePath;
+            fileName = retryFileName;
+          } else {
+            throw new Error(`Upload failed: ${uploadError.message}`);
+          }
         }
 
         console.log('File uploaded successfully:', uploadData?.path);
@@ -230,7 +341,8 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
             metadata: {
               original_name: file.name,
               upload_date: new Date().toISOString(),
-              file_extension: fileExtension
+              file_extension: fileExtension,
+              storage_path: uploadData?.path
             }
           })
           .select()
@@ -238,6 +350,14 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
 
         if (dbError) {
           console.error('Database error:', dbError);
+          
+          // Clean up uploaded file if database insert fails
+          try {
+            await supabase.storage.from(bucketName).remove([filePath]);
+          } catch (cleanupError) {
+            console.warn('Failed to cleanup uploaded file:', cleanupError);
+          }
+          
           throw new Error(`Database error: ${dbError.message}`);
         }
 
@@ -281,22 +401,28 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
   };
 
   const handleDeleteFile = async (fileId: string, filePath: string) => {
+    if (!confirm('Are you sure you want to delete this file? This action cannot be undone.')) {
+      return;
+    }
+
     try {
-      // Delete from storage
+      // Delete from storage first
       const { error: storageError } = await supabase.storage
-        .from('chess-games')
+        .from(bucketName)
         .remove([filePath]);
 
       if (storageError) {
         console.error('Storage deletion error:', storageError);
-        throw new Error(`Storage deletion failed: ${storageError.message}`);
+        // Continue with database deletion even if storage deletion fails
+        console.warn('Storage deletion failed, continuing with database cleanup');
       }
 
       // Delete from database
       const { error: dbError } = await supabase
         .from('uploaded_files')
         .delete()
-        .eq('id', fileId);
+        .eq('id', fileId)
+        .eq('user_id', user?.id); // Additional security check
 
       if (dbError) {
         console.error('Database deletion error:', dbError);
@@ -317,7 +443,7 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
   const handleDownloadFile = async (filePath: string, fileName: string) => {
     try {
       const { data, error } = await supabase.storage
-        .from('chess-games')
+        .from(bucketName)
         .download(filePath);
 
       if (error) {
@@ -346,6 +472,11 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  const clearMessages = () => {
+    setError('');
+    setSuccess('');
   };
 
   return (
@@ -448,18 +579,34 @@ const FileUploadComponent: React.FC<FileUploadComponentProps> = ({
       {/* Status Messages */}
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-md p-3">
-          <div className="flex items-center">
-            <AlertTriangle className="w-4 h-4 text-red-500 mr-2" />
-            <span className="text-sm text-red-700">{error}</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <AlertTriangle className="w-4 h-4 text-red-500 mr-2" />
+              <span className="text-sm text-red-700">{error}</span>
+            </div>
+            <button
+              onClick={clearMessages}
+              className="text-red-500 hover:text-red-700"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
 
       {success && (
         <div className="bg-green-50 border border-green-200 rounded-md p-3">
-          <div className="flex items-center">
-            <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
-            <span className="text-sm text-green-700">{success}</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <CheckCircle className="w-4 h-4 text-green-500 mr-2" />
+              <span className="text-sm text-green-700">{success}</span>
+            </div>
+            <button
+              onClick={clearMessages}
+              className="text-green-500 hover:text-green-700"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}

@@ -764,6 +764,7 @@ Example:
                 acceptedTypes={['.pgn']}
                 maxSize={50 * 1024 * 1024} // 50MB
                 allowMultiple={false}
+                bucketName="chess-games"
               />
             </div>
           )}
