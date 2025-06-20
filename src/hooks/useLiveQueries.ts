@@ -582,12 +582,12 @@ export const useLiveDailySuspicionView = () => {
     try {
       setError(null);
       
-      // Set a timeout for the query - increased from 30 seconds to 60 seconds
+      // Set a timeout for the query - increased from 60 seconds to 120 seconds
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout')), 60000)
+        setTimeout(() => reject(new Error('Query timeout')), 120000)
       );
       
-      // First check if we have any data
+      // First check if we have any data - increased timeout to 120 seconds
       const countPromise = supabase
         .from('scores')
         .select('id', { count: 'exact', head: true });
@@ -680,13 +680,13 @@ export const useLiveDailySuspicionView = () => {
   };
 
   useEffect(() => {
-    // Initial fetch with timeout - increased from 15 seconds to 65 seconds
+    // Initial fetch with timeout - increased from 65 seconds to 125 seconds
     const fetchTimeout = setTimeout(() => {
       console.warn('Daily suspicion view fetch taking too long');
       setDailyData(generateFallbackDailyData());
       setIsLive(false);
       setLoading(false);
-    }, 65000);
+    }, 125000);
 
     fetchDailyData().finally(() => {
       clearTimeout(fetchTimeout);
