@@ -35,20 +35,10 @@ const Players: React.FC = () => {
       setLoading(true);
       setError(null);
       
-      // Set a timeout for the query
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout')), 15000)
-      );
-      
       // First check if we have any players data
-      const countPromise = supabase
+      const { data: playersCount, error: countError } = await supabase
         .from('players')
         .select('id', { count: 'exact', head: true });
-
-      const { data: playersCount, error: countError } = await Promise.race([
-        countPromise,
-        timeoutPromise
-      ]) as any;
 
       if (countError) {
         console.error('Error checking players count:', countError);
@@ -67,7 +57,7 @@ const Players: React.FC = () => {
       }
       
       // Fetch players with aggregated statistics
-      const queryPromise = supabase
+      const { data, error } = await supabase
         .from('players')
         .select(`
           *,
@@ -82,11 +72,6 @@ const Players: React.FC = () => {
           )
         `)
         .order('created_at', { ascending: false });
-
-      const { data, error } = await Promise.race([
-        queryPromise,
-        timeoutPromise
-      ]) as any;
 
       if (error) {
         console.error('Error fetching players:', error);
@@ -169,16 +154,7 @@ const Players: React.FC = () => {
   };
 
   useEffect(() => {
-    // Initial fetch with timeout
-    const fetchTimeout = setTimeout(() => {
-      console.warn('Players fetch taking too long');
-      setPlayers([]);
-      setLoading(false);
-    }, 20000); // 20 second timeout
-
-    fetchPlayers().finally(() => {
-      clearTimeout(fetchTimeout);
-    });
+    fetchPlayers();
 
     // Set up realtime subscription
     const channel = supabase
@@ -192,7 +168,6 @@ const Players: React.FC = () => {
       .subscribe();
 
     return () => {
-      clearTimeout(fetchTimeout);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -272,7 +247,7 @@ const Players: React.FC = () => {
               disabled={refreshing}
               className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className="w-4 h-4" />
               <span>Refresh</span>
             </button>
             <button
@@ -310,7 +285,7 @@ const Players: React.FC = () => {
               disabled={refreshing}
               className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <RefreshCw className="w-4 h-4" />
               <span>Retry</span>
             </button>
             <button
@@ -360,7 +335,7 @@ const Players: React.FC = () => {
             disabled={refreshing}
             className="flex items-center space-x-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw className="w-4 h-4" />
             <span>{refreshing ? 'Refreshing...' : 'Refresh'}</span>
           </button>
           <button
