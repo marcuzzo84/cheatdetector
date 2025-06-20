@@ -50,7 +50,7 @@ const Games: React.FC = () => {
       const countResult = await Promise.race([
         countPromise,
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Count query timeout')), 30000)
+          setTimeout(() => reject(new Error('Count query timeout')), 60000)
         )
       ]) as any;
 
