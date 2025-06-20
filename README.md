@@ -1,13 +1,13 @@
 # FairPlay-Scout Dashboard
 
-A real-time chess anti-cheat monitoring dashboard built with React, TypeScript, and Supabase.
+A comprehensive chess anti-cheat monitoring dashboard built with React, TypeScript, and Supabase for real-time game analysis and suspicious behavior detection.
 
 ## 🚀 Features
 
 ### Real-time Monitoring
 - **Live Score Stream**: Real-time updates as new game analysis results arrive
 - **Live KPI Cards**: Automatically updating metrics for games analyzed, suspicion rates, and average Elo
-- **Live Suspicion Chart**: Continuous chart updates with `live: true` behavior using Supabase realtime
+- **Live Suspicion Chart**: Continuous chart updates with real-time data using Supabase realtime
 - **Live High-Risk Games Table**: Instant notifications for games with suspicion level ≥ 80%
 
 ### Database Integration
@@ -28,6 +28,12 @@ A real-time chess anti-cheat monitoring dashboard built with React, TypeScript, 
 - **API Rate Limiting**: Configurable request limits
 - **Environment Variables**: Secure configuration management
 
+### Subscription System
+- **Free Tier**: PGN file uploads, basic analysis, up to 100 games/month
+- **Premium Tier**: Live API imports, advanced analytics, up to 1,000 games/month
+- **Pro Tier**: Unlimited games, custom models, API access, white-label options
+- **10-Day Trial**: Automatic trial activation for new users
+
 ## 🏗️ Architecture
 
 ### Frontend Stack
@@ -39,6 +45,7 @@ A real-time chess anti-cheat monitoring dashboard built with React, TypeScript, 
 
 ### Backend Stack
 - **Supabase** (PostgreSQL + Real-time + Auth)
+- **Edge Functions** for API integrations
 - **Database Functions** for complex queries
 - **Triggers & Notifications** for real-time updates
 - **Views & Indexes** for performance optimization
@@ -50,13 +57,18 @@ players (id, hash, elo, created_at)
 games (id, player_id, site, pgn_url, date, result, created_at)
 scores (id, game_id, match_engine_pct, ml_prob, suspicion_level, created_at)
 
+-- Subscription system
+subscription_plans (id, name, price_monthly, features, limits)
+user_subscriptions (id, user_id, plan_id, status, billing_cycle)
+user_trials (id, user_id, trial_type, started_at, expires_at)
+
+-- File management
+uploaded_files (id, user_id, file_name, file_path, file_size, processed)
+player_files (id, player_id, user_id, file_name, is_public)
+
 -- Aggregated views
 v_daily_suspicion (bucket, rate, volume)
-
--- Functions
-get_dashboard_kpis() -> KPI metrics
-get_suspicion_trends(days) -> Historical trends
-get_recent_high_risk_games(limit) -> Latest suspicious games
+v_file_statistics (user_id, total_files, total_size, processed_files)
 ```
 
 ## 🔧 Setup & Development
@@ -78,9 +90,6 @@ npm install
 # Set up environment variables
 cp .env.example .env
 # Edit .env with your Supabase credentials
-
-# Run database migrations
-# (Migrations are automatically applied via Supabase)
 
 # Start development server
 npm run dev
@@ -126,6 +135,20 @@ The suspicion chart uses Supabase's realtime publication system:
 - Channel-level access control
 - Secure notification system
 - Rate limiting on subscriptions
+
+## 💳 Subscription Features
+
+### Trial System
+- **Automatic Activation**: 10-day trial starts automatically for new users
+- **Feature Access**: Full premium features during trial period
+- **Conversion Tracking**: Monitor trial-to-paid conversion rates
+- **Grace Period**: Continued access for a short period after trial expiration
+
+### Plan Management
+- **Flexible Billing**: Monthly and yearly billing cycles
+- **Feature Gating**: Different features based on subscription tier
+- **Usage Tracking**: Monitor API calls, file uploads, and game analysis
+- **Upgrade/Downgrade**: Seamless plan transitions
 
 ## 🚀 Deployment
 
@@ -181,6 +204,28 @@ The application is optimized for static hosting with:
 - `high_risk_score`: New high-risk game detected
 - `daily_stats_update`: Daily statistics changed
 - `daily_suspicion_changed`: Suspicion trends updated
+
+### Edge Functions
+- `import-games`: Chess.com and Lichess API integration
+- Rate limiting and quota management
+- Automatic game analysis and scoring
+
+## 🧹 Project Structure
+
+```
+fairplay-scout-dashboard/
+├── src/
+│   ├── components/          # Reusable UI components
+│   ├── contexts/           # React contexts (Auth, Theme)
+│   ├── hooks/              # Custom React hooks
+│   ├── pages/              # Page components
+│   └── extension/          # Browser extension
+├── supabase/
+│   ├── functions/          # Edge functions
+│   └── migrations/         # Database migrations
+├── public/                 # Static assets
+└── docs/                   # Documentation
+```
 
 ## 🤝 Contributing
 
