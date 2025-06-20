@@ -48,9 +48,9 @@ export const useLiveKPIs = () => {
     try {
       setError(null);
       
-      // Set a timeout for the query - increased from 10 seconds to 30 seconds
+      // Set a timeout for the query - increased from 30 seconds to 90 seconds
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout')), 30000)
+        setTimeout(() => reject(new Error('Query timeout')), 90000)
       );
       
       // First check if we have any data at all with a simple count
@@ -146,7 +146,7 @@ export const useLiveKPIs = () => {
       yesterday.setDate(yesterday.getDate() - 1);
 
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Fallback query timeout')), 15000)
+        setTimeout(() => reject(new Error('Fallback query timeout')), 45000)
       );
 
       const queryPromise = supabase
@@ -190,12 +190,12 @@ export const useLiveKPIs = () => {
   };
 
   useEffect(() => {
-    // Initial fetch with timeout - increased from 15 seconds to 45 seconds
+    // Initial fetch with timeout - increased from 45 seconds to 100 seconds
     const fetchTimeout = setTimeout(() => {
       console.warn('KPI fetch taking too long, using fallback');
       setKpis({ games_24h: 0, suspect_pct: 0, avg_elo: 0 });
       setLoading(false);
-    }, 45000);
+    }, 100000);
 
     fetchKPIs().finally(() => {
       clearTimeout(fetchTimeout);
