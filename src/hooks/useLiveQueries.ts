@@ -376,12 +376,12 @@ export const useLiveSuspicionTrends = () => {
     try {
       setError(null);
       
-      // Set a timeout for the query - increased from 30 seconds to 60 seconds
+      // Set a timeout for the query - increased from 60 seconds to 120 seconds
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Query timeout')), 60000)
+        setTimeout(() => reject(new Error('Query timeout')), 120000)
       );
       
-      // First check if we have any scores data - increased timeout from 30 to 60 seconds
+      // First check if we have any scores data - increased timeout from 60 to 120 seconds
       const countPromise = supabase
         .from('scores')
         .select('id', { count: 'exact', head: true });
@@ -475,12 +475,12 @@ export const useLiveSuspicionTrends = () => {
 
   const calculateFallbackTrends = async (): Promise<SuspicionTrend[]> => {
     try {
-      // Get last 30 days of data with timeout
+      // Get last 30 days of data with timeout - increased from 5 seconds to 15 seconds
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Fallback trends timeout')), 5000)
+        setTimeout(() => reject(new Error('Fallback trends timeout')), 15000)
       );
 
       const queryPromise = supabase
@@ -534,12 +534,12 @@ export const useLiveSuspicionTrends = () => {
   };
 
   useEffect(() => {
-    // Initial fetch with timeout - increased from 15 seconds to 70 seconds
+    // Initial fetch with timeout - increased from 70 seconds to 130 seconds
     const fetchTimeout = setTimeout(() => {
       console.warn('Suspicion trends fetch taking too long');
       setTrends(generateFallbackTrends());
       setLoading(false);
-    }, 70000);
+    }, 130000);
 
     fetchSuspicionTrends().finally(() => {
       clearTimeout(fetchTimeout);
