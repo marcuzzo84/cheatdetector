@@ -236,7 +236,7 @@ export const useLiveSuspiciousScores = () => {
     try {
       setError(null);
       
-      // Set a timeout for the query - increased from 30 seconds to 120 seconds
+      // Set a timeout for the query - increased from 60 seconds to 120 seconds
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Query timeout')), 120000)
       );
@@ -381,7 +381,7 @@ export const useLiveSuspicionTrends = () => {
         setTimeout(() => reject(new Error('Query timeout')), 120000)
       );
       
-      // First check if we have any scores data - increased timeout from 60 to 120 seconds
+      // First check if we have any scores data
       const countPromise = supabase
         .from('scores')
         .select('id', { count: 'exact', head: true });
@@ -475,7 +475,7 @@ export const useLiveSuspicionTrends = () => {
 
   const calculateFallbackTrends = async (): Promise<SuspicionTrend[]> => {
     try {
-      // Get last 30 days of data with timeout - increased from 5 seconds to 15 seconds
+      // Get last 30 days of data with timeout
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -587,7 +587,7 @@ export const useLiveDailySuspicionView = () => {
         setTimeout(() => reject(new Error('Query timeout')), 120000)
       );
       
-      // First check if we have any data - increased timeout to 120 seconds
+      // First check if we have any data
       const countPromise = supabase
         .from('scores')
         .select('id', { count: 'exact', head: true });
