@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown, LogOut, Download, Calendar, Power, Crown, Star, Zap, BarChart3 } from 'lucide-react';
+import { Shield, Home, Users, GamepadIcon, Settings, Menu, X, User, Moon, Sun, ChevronDown, LogOut, Download, Calendar, Power, Crown, Star, Zap, BarChart3, UserPlus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 
@@ -27,15 +27,30 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     { name: 'Import', href: '/import', icon: Download },
   ];
 
+  // Premium navigation items
+  const premiumNavigation = [
+    { name: 'Player Management', href: '/player-management', icon: UserPlus },
+  ];
+
   // Admin-only navigation items
   const adminNavigation = [
     { name: 'Settings', href: '/settings', icon: Settings },
+    { name: 'Scheduler', href: '/scheduler', icon: Calendar },
   ];
 
+  // Check if user has premium access
+  const hasPremiumAccess = isAdmin || userProfile?.role === 'premium' || userProfile?.role === 'pro';
+
   // Combine navigation based on user role
-  const navigation = isAdmin 
-    ? [...baseNavigation, ...adminNavigation]
-    : baseNavigation;
+  let navigation = [...baseNavigation];
+  
+  if (hasPremiumAccess) {
+    navigation = [...navigation, ...premiumNavigation];
+  }
+  
+  if (isAdmin) {
+    navigation = [...navigation, ...adminNavigation];
+  }
 
   const isActiveRoute = (href: string) => {
     return location.pathname === href || (href === '/dashboard' && location.pathname === '/');

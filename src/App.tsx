@@ -15,6 +15,8 @@ import SchedulerDashboard from './pages/SchedulerDashboard';
 import SignIn from './pages/SignIn';
 import SignUp from './pages/SignUp';
 import ForgotPassword from './pages/ForgotPassword';
+import Analytics from './pages/Analytics';
+import PlayerManagement from './pages/PlayerManagement';
 
 function App() {
   return (
@@ -56,6 +58,13 @@ function App() {
                 </Layout>
               </ProtectedRoute>
             } />
+            <Route path="/analytics" element={
+              <ProtectedRoute>
+                <Layout>
+                  <Analytics />
+                </Layout>
+              </ProtectedRoute>
+            } />
             <Route path="/import" element={
               <ProtectedRoute>
                 <Layout>
@@ -67,6 +76,13 @@ function App() {
               <ProtectedRoute>
                 <Layout>
                   <PlayerDetail />
+                </Layout>
+              </ProtectedRoute>
+            } />
+            <Route path="/player-management" element={
+              <ProtectedRoute>
+                <Layout>
+                  <PlayerManagement />
                 </Layout>
               </ProtectedRoute>
             } />
